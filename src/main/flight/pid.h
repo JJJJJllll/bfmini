@@ -34,7 +34,7 @@
 #define PIDSUM_LIMIT                500
 #define PIDSUM_LIMIT_YAW            400
 #define PIDSUM_LIMIT_MIN            100
-#define PIDSUM_LIMIT_MAX            1000
+#define PIDSUM_LIMIT_MAX            2000 // 原来是1000、servo最大50，为了能达到90放开
 
 #define PID_GAIN_MAX 250
 #define F_GAIN_MAX 1000

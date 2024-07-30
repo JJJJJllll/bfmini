@@ -362,6 +362,7 @@ void writeServos(void)
     case MIXER_BICOPTER:
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT);
+        // 双旋翼舵机命令在这里，240730 by JJJJJllll
         break;
 
     case MIXER_HELI_120_CCPM:
@@ -413,11 +414,15 @@ void servoMixer(void)
     int16_t input[INPUT_SOURCE_COUNT]; // Range [-500:+500]
     static int16_t currentOutput[MAX_SERVO_RULES];
 
-    if (FLIGHT_MODE(PASSTHRU_MODE)) {
+    if (FLIGHT_MODE(PASSTHRU_MODE)) {   // 手飞叫Passthrough 240730 by JJJJJllll
         // Direct passthru from RX
         input[INPUT_STABILIZED_ROLL] = rcCommand[ROLL];
         input[INPUT_STABILIZED_PITCH] = rcCommand[PITCH];
         input[INPUT_STABILIZED_YAW] = rcCommand[YAW];
+
+        // 现在必须角度设为180才能达到90度，为了解决扩大scaling尝试，这里只对手飞起作用（但bf不分offboard，改手飞就够了）240730 by JJJJJllll
+        //input[INPUT_STABILIZED_ROLL] = rcCommand[ROLL] * 2.0f;
+        //input[INPUT_STABILIZED_PITCH] = rcCommand[PITCH] * 2.0f;
     } else {
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
         input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * PID_SERVO_MIXER_SCALING;

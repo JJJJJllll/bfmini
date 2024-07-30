@@ -413,6 +413,7 @@ static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t 
             motorOutput = constrainf(motorOutput, mixerRuntime.disarmMotorOutput, motorRangeMax);
         } else {
             motorOutput = constrainf(motorOutput, motorRangeMin, motorRangeMax);
+            // 电机的输出限幅在这里 240730 by JJJJJllll
         }
         motor[i] = motorOutput;
     }
@@ -623,6 +624,7 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
         constrainf(pidData[FD_ROLL].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
     const float scaledAxisPidPitch =
         constrainf(pidData[FD_PITCH].Sum, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
+    // 此处限制了roll, pitch的角速度环pidData.Sum在pidSumLimit之间 240730 by JJJJJllll
 
     uint16_t yawPidSumLimit = currentPidProfile->pidSumLimitYaw;
 
