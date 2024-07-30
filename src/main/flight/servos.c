@@ -423,6 +423,7 @@ void servoMixer(void)
         // 现在必须角度设为180才能达到90度，为了解决扩大scaling尝试，这里只对手飞起作用（但bf不分offboard，改手飞就够了）240730 by JJJJJllll
         //input[INPUT_STABILIZED_ROLL] = rcCommand[ROLL] * 2.0f;
         //input[INPUT_STABILIZED_PITCH] = rcCommand[PITCH] * 2.0f;
+        // 确认pidsum没用、舵机最大角度固定为angleLimit的一半
     } else {
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
         input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * PID_SERVO_MIXER_SCALING;
