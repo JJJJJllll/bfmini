@@ -1,7 +1,7 @@
 TARGET_MCU        := STM32F405xx
 TARGET_MCU_FAMILY := STM32F4
 
-# forked from STM32F445 target.mk 240728 by JJJJJllll
+# forked from STM32F445 target.mk 240728 jsl
 TARGET_SRC = \
             drivers/accgyro/accgyro_mpu6500.c \
             drivers/accgyro/accgyro_spi_mpu6500.c \

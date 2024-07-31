@@ -383,11 +383,11 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // it MUST be very delayed to avoid early overshoot and being too aggressive
     angleFeedforward = pt3FilterApply(&pidRuntime.angleFeedforwardPt3[axis], angleFeedforward);
 #endif
-    //240728 by JJJJJllll
+    //240728 jsl
     if (axis == FD_PITCH){
         DEBUG_SET(DEBUG_ANGLE_MODE, 7, currentPidSetpoint); 
     }
-    // 240728 by JJJJJllll, 1 line no setpoint
+    // 240728 jsl, 1 line no setpoint
     float angleTarget = angleLimit * currentPidSetpoint * pidRuntime.maxRcRateInv[axis];
 
     //float angleTarget = angleLimit * currentPidSetpoint * pidRuntime.maxRcRateInv[axis];
@@ -398,12 +398,13 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #endif
     const float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
     const float errorAngle = angleTarget - currentAngle;
-    float angleRate = errorAngle * pidRuntime.angleGain; //+ angleFeedforward; 240728 by JJJJJllll
+    // 角度环=反馈+前馈  240730 jsl
+    float angleRate = errorAngle * pidRuntime.angleGain; //+ angleFeedforward; 240728 jsl
       
     // minimise cross-axis wobble due to faster yaw responses than roll or pitch, and make co-ordinated yaw turns
     // by compensating for the effect of yaw on roll while pitched, and on pitch while rolled
     // earthRef code here takes about 76 cycles, if conditional on angleEarthRef it takes about 100.  sin_approx costs most of those cycles.
-    // 240728 by JJJJJllll shut down earth ref, comment 5 lines
+    // 240728 jsl shut down earth ref, comment 5 lines
     //float sinAngle = sin_approx(DEGREES_TO_RADIANS(pidRuntime.angleTarget[axis == FD_ROLL ? FD_PITCH : FD_ROLL]));
     //sinAngle *= (axis == FD_ROLL) ? -1.0f : 1.0f; // must be negative for Roll
     //const float earthRefGain = FLIGHT_MODE(GPS_RESCUE_MODE) ? 1.0f : pidRuntime.angleEarthRef;
@@ -412,7 +413,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 
     // smooth final angle rate output to clean up attitude signal steps (500hz), GPS steps (10 or 100hz), RC steps etc
     // this filter runs at ATTITUDE_CUTOFF_HZ, currently 50hz, so GPS roll may be a bit steppy
-    // 240728 by JJJJJllll comment filter 
+    // 240728 jsl comment filter 
     // angleRate = pt3FilterApply(&pidRuntime.attitudeFilter[axis], angleRate);
 
     if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(GPS_RESCUE_MODE)) {
@@ -421,7 +422,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
         // can only be HORIZON mode - crossfade Angle rate and Acro rate
         currentPidSetpoint = currentPidSetpoint * (1.0f - horizonLevelStrength) + angleRate * horizonLevelStrength;
     }
-    // add debug 240728 by JJJJJllll
+    // add debug 240728 jsl
     if (axis == FD_PITCH){
         DEBUG_SET(DEBUG_ANGLE_MODE, 0, angleTarget * 10.0f);//前4位x10在bfl中看起来是真值
         DEBUG_SET(DEBUG_ANGLE_MODE, 1, currentAngle * 10.0f);
@@ -433,14 +434,14 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     }
     //logging
     if (axis == FD_ROLL) {
-        // comment 4 lines, replacing debug angle mode 240728 by JJJJJllll
+        // comment 4 lines, replacing debug angle mode 240728 jsl
         //DEBUG_SET(DEBUG_ANGLE_MODE, 0, lrintf(angleTarget * 10.0f)); // target angle
         //DEBUG_SET(DEBUG_ANGLE_MODE, 1, lrintf(errorAngle * pidRuntime.angleGain * 10.0f)); // un-smoothed error correction in degrees
         //DEBUG_SET(DEBUG_ANGLE_MODE, 2, lrintf(angleFeedforward * 10.0f)); // feedforward amount in degrees
         //DEBUG_SET(DEBUG_ANGLE_MODE, 3, lrintf(currentAngle * 10.0f)); // angle returned
 
         DEBUG_SET(DEBUG_ANGLE_TARGET, 0, lrintf(angleTarget * 10.0f));
-        // 240728 by JJJJJllll comment 1 line
+        // 240728 jsl comment 1 line
         //DEBUG_SET(DEBUG_ANGLE_TARGET, 1, lrintf(sinAngle * 10.0f)); // modification factor from earthRef
         // debug ANGLE_TARGET 2 is yaw attenuation
         DEBUG_SET(DEBUG_ANGLE_TARGET, 3, lrintf(currentAngle * 10.0f)); // angle returned
@@ -832,7 +833,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     levelMode_e levelMode;
     if (FLIGHT_MODE(ANGLE_MODE) || FLIGHT_MODE(HORIZON_MODE) || gpsRescueIsActive) {
         if (pidRuntime.levelRaceMode && !gpsRescueIsActive) {
-            levelMode = LEVEL_MODE_R;
+            levelMode = LEVEL_MODE_R; // level race mode是放开pitch、但会保持roll水平，240730 jsl
         } else {
             levelMode = LEVEL_MODE_RP;
         }
@@ -902,20 +903,22 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif
 
     // ----------PID controller----------
-    for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
-
-        float currentPidSetpoint = getSetpointRate(axis);
+    for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) { // 超大循环905-1155，把角度、角速度都算完 240730 jsl
+        // 1. 接收RC指令（currentPidSetpoint out） 240730 jsl
+        float currentPidSetpoint = getSetpointRate(axis); // 这里curSP是摇杆指令、没确定是期望角度还是期望角速度 240730 jsl
         if (pidRuntime.maxVelocity[axis]) {
             currentPidSetpoint = accelerationLimit(axis, currentPidSetpoint);
         }
         // Yaw control is GYRO based, direct sticks control is applied to rate PID
+        // yaw 只有角速度控制 240730 jsl
         // When Race Mode is active PITCH control is also GYRO based in level or horizon mode
 #if defined(USE_ACC)
         pidRuntime.axisInAngleMode[axis] = false;
-        if (axis < FD_YAW) {
+        if (axis < FD_YAW) { // 在angle模式下，roll和pitch是角度（yaw还是角速度） 240730 jsl
             if (levelMode == LEVEL_MODE_RP || (levelMode == LEVEL_MODE_R && axis == FD_ROLL)) {
                 pidRuntime.axisInAngleMode[axis] = true;
-                currentPidSetpoint = pidLevel(axis, pidProfile, angleTrim, currentPidSetpoint, horizonLevelStrength);
+                // 2. Roll Pitch角度环（currentPidSetpoint in, currentPidSetpoint out） 240730 jsl
+                currentPidSetpoint = pidLevel(axis, pidProfile, angleTrim, currentPidSetpoint, horizonLevelStrength); // curSP经过角度环、是期望角速度 240730 jsl
             }
         } else { // yaw axis only
             if (levelMode == LEVEL_MODE_RP) {
@@ -960,6 +963,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif // USE_YAW_SPIN_RECOVERY
 
         // -----calculate error rate
+        // 3.1 RPY角速度误差 (currentPidSetpoint in, errorRate out) 240730 jsl
         const float gyroRate = gyro.gyroADCf[axis]; // Process variable from gyro output in deg/sec
         float errorRate = currentPidSetpoint - gyroRate; // r - y
 #if defined(USE_ACC)
@@ -968,8 +972,8 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             &currentPidSetpoint, &errorRate);
 #endif
 
-        const float previousIterm = pidData[axis].I;
-        float itermErrorRate = errorRate;
+        const float previousIterm = pidData[axis].I; // I 项 240730 jsl
+        float itermErrorRate = errorRate; // I 项累积速率 240730 jsl
 #ifdef USE_ABSOLUTE_CONTROL
         const float uncorrectedSetpoint = currentPidSetpoint;
 #endif
@@ -987,7 +991,8 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // --------low-level gyro-based PID based on 2DOF PID controller. ----------
 
         // -----calculate P component
-        pidData[axis].P = pidRuntime.pidCoefficient[axis].Kp * errorRate * tpaFactorKp;
+        // 3.2 P控制（errorRate in, pidData[axis].P out）
+        pidData[axis].P = pidRuntime.pidCoefficient[axis].Kp * errorRate * tpaFactorKp; // P 和 tpa 有关 240730 jsl
         if (axis == FD_YAW) {
             pidData[axis].P = pidRuntime.ptermYawLowpassApplyFn((filter_t *) &pidRuntime.ptermYawLowpass, pidData[axis].P);
         }
@@ -1006,6 +1011,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 pidRuntime.itermAccelerator = 0.0f; // no antigravity on yaw iTerm
             }
         }
+        // 3.3 I控制（itermErrorRate in, pidData[axis].I out）
         const float iTermChange = (Ki + pidRuntime.itermAccelerator) * dynCi * pidRuntime.dT * itermErrorRate;
         pidData[axis].I = constrainf(previousIterm + iTermChange, -pidRuntime.itermLimit, pidRuntime.itermLimit);
 
@@ -1025,6 +1031,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             // but for now let's see how we go without it (which was the case before 4.5 anyway)
 //            pidSetpointDelta = currentPidSetpoint - pidRuntime.previousPidSetpoint[axis];
 //            pidSetpointDelta *= pidRuntime.pidFrequency * pidRuntime.angleFeedforwardGain;
+            // 看起来roll和pitch没加前馈 240730 jsl
             pidSetpointDelta = 0.0f;
         } else {
             // the axis is operating as a normal acro axis, so use normal feedforard from rc.c
@@ -1071,6 +1078,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             // Apply the dMinFactor
             preTpaD *= dMinFactor;
 #endif
+            // 3.4 D控制（Tpa in pidData.D out） 240730 jsl
             pidData[axis].D = preTpaD * pidRuntime.tpaFactor;
 
             // Log the value of D pre application of TPA
@@ -1078,7 +1086,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 DEBUG_SET(DEBUG_D_LPF, axis - FD_ROLL + 2, lrintf(preTpaD * D_LPF_PRE_TPA_SCALE));
             }
         } else {
-            pidData[axis].D = 0;
+            pidData[axis].D = 0; // yaw把D置零？
             if (axis != FD_YAW) {
                 DEBUG_SET(DEBUG_D_LPF, axis - FD_ROLL + 2, 0);
             }
@@ -1095,6 +1103,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif
         // no feedforward in launch control
         const float feedforwardGain = launchControlActive ? 0.0f : pidRuntime.pidCoefficient[axis].Kf;
+        // 3.5 F控制（pidData.F out） 240730 jsl
         pidData[axis].F = feedforwardGain * pidSetpointDelta;
 
 #ifdef USE_YAW_SPIN_RECOVERY
@@ -1140,7 +1149,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             }
         }
 
-        // calculating the PID sum
+        // 3.6 calculating the PID sum (pidData.Sum out)
         const float pidSum = pidData[axis].P + pidData[axis].I + pidData[axis].D + pidData[axis].F;
 #ifdef USE_INTEGRATED_YAW_CONTROL
         if (axis == FD_YAW && pidRuntime.useIntegratedYaw) {
@@ -1153,6 +1162,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         }
     }
 
+    // 零油门pidData全置零？ 240730 jsl
     // Disable PID control if at zero throttle or if gyro overflow detected
     // This may look very innefficient, but it is done on purpose to always show real CPU usage as in flight
     if (!pidRuntime.pidStabilisationEnabled || gyroOverflowDetected()) {

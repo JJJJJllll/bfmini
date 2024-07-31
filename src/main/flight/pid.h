@@ -30,11 +30,11 @@
 #define MAX_PID_PROCESS_DENOM       16
 #define PID_CONTROLLER_BETAFLIGHT   1
 #define PID_MIXER_SCALING           1000.0f
-#define PID_SERVO_MIXER_SCALING     0.7f
-#define PIDSUM_LIMIT                500
+#define PID_SERVO_MIXER_SCALING     0.7f // 默认0.7f 改成10和5都能达90度 但是太大了 3正好 2太小 240731 jsl
+#define PIDSUM_LIMIT                500 // 要改pidsum也可以直接改这个 240730 jsl
 #define PIDSUM_LIMIT_YAW            400
 #define PIDSUM_LIMIT_MIN            100
-#define PIDSUM_LIMIT_MAX            2000 // 原来是1000、servo最大50，为了能达到90放开
+#define PIDSUM_LIMIT_MAX            2000 // 原来是1000、servo最大50，为了能达到90放开 240730 jsl
 
 #define PID_GAIN_MAX 250
 #define F_GAIN_MAX 1000

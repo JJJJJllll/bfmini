@@ -27,7 +27,7 @@
 #define PWM_SERVO_MIN   500       // minimum servo PWM pulse width which we can set from cli
 #define PWM_SERVO_MAX   2500      // maximum servo PWM pulse width which we can set from cli
 
-// min-max 1000-2000 -> 500->2500 240729 by JJJJJllll
+// min-max 1000-2000 -> 500->2500 240729 jsl
 #define DEFAULT_SERVO_MIN 500//1000
 #define DEFAULT_SERVO_MIDDLE 1500
 #define DEFAULT_SERVO_MAX 2500//2000

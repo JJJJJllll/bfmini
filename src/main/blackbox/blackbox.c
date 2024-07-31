@@ -1496,7 +1496,7 @@ static bool blackboxWriteSysinfo(void)
 
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_ACC_LIMIT_YAW, "%d",          currentPidProfile->yawRateAccelLimit);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_ACC_LIMIT, "%d",              currentPidProfile->rateAccelLimit);
-        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_PIDSUM_LIMIT, "%d",           currentPidProfile->pidSumLimit); // pidsumlimit在bfl中显示 240730 by JJJJJllll
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_PIDSUM_LIMIT, "%d",           currentPidProfile->pidSumLimit); // pidsumlimit在bfl中显示 240730 jsl
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_PIDSUM_LIMIT_YAW, "%d",       currentPidProfile->pidSumLimitYaw);
         // End of Betaflight controller parameters
 

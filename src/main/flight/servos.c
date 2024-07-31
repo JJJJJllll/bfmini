@@ -130,7 +130,13 @@ static const servoMixer_t servoMixerTri[] = {
 };
 
 #if defined(USE_UNCOMMON_MIXERS)
+/* servoMixerBi 是rule的数组
+   rule是servoMixer_t类型的结构体
+240731 jsl*/  
 static const servoMixer_t servoMixerBI[] = {
+    /* input source共14个、双旋翼只用2个：stabilized yaw + pitch
+       从servo的角度看过去，yaw是两个都cw转、pitch是一个cw一个ccw -> 对yaw都+1、对pitch+1-1 
+       左舵 偏航输入 +100%响应 不限速 MIN0 MAX100 无box 240730 jsl */
     { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,   100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,   100, 0, 0, 100, 0 },
@@ -177,11 +183,17 @@ static const servoMixer_t servoMixerGimbal[] = {
 };
 
 const mixerRules_t servoMixers[] = {
+    /* servoMixers 是数组
+       每个元素是 mixerRules_t 类型的结构体、
+       包括rulecount数和指向rule(s)的指针(数组首地址)、
+       加起来就能访问所有rule 
+       240731 jsl*/
     { 0, NULL },                // entry 0
     { COUNT_SERVO_RULES(servoMixerTri), servoMixerTri },       // MULTITYPE_TRI
     { 0, NULL },                // MULTITYPE_QUADP
     { 0, NULL },                // MULTITYPE_QUADX
     { COUNT_SERVO_RULES(servoMixerBI), servoMixerBI },        // MULTITYPE_BI
+    // 双旋翼有4条规则：左右各2条：1偏航1俯仰 240731 jsl
     { COUNT_SERVO_RULES(servoMixerGimbal), servoMixerGimbal },    // * MULTITYPE_GIMBAL
     { 0, NULL },                // MULTITYPE_Y6
     { 0, NULL },                // MULTITYPE_HEX6
@@ -251,6 +263,9 @@ static void servoConfigureOutput(void)
         if (servoMixers[getMixerMode()].rule) {
             for (int i = 0; i < servoRuleCount; i++)
                 currentServoMixer[i] = servoMixers[getMixerMode()].rule[i];
+                /* currentServoMixer 是双旋翼servo rules的数组
+                   只包括了双旋翼的rules
+                   240731 jsl*/
         }
     }
 
@@ -271,8 +286,9 @@ void servosInit(void)
     useServo = mixers[getMixerMode()].useServo;
     // if we want camstab/trig, that also enables servos, even if mixer doesn't
     if (featureIsEnabled(FEATURE_SERVO_TILT) || featureIsEnabled(FEATURE_CHANNEL_FORWARDING)) {
-        useServo = 1;
+        useServo = 1; 
     }
+    // servo tilt、channel forward、mixer需要舵机都会导致useServo为真 240730 jsl
 
     // give all servos a default command
     for (uint8_t i = 0; i < MAX_SUPPORTED_SERVOS; i++) {
@@ -362,7 +378,7 @@ void writeServos(void)
     case MIXER_BICOPTER:
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT);
-        // 双旋翼舵机命令在这里，240730 by JJJJJllll
+        // 最终写入舵机角度指令 240730 jsl
         break;
 
     case MIXER_HELI_120_CCPM:
@@ -409,26 +425,38 @@ void writeServos(void)
     }
 }
 
-void servoMixer(void)
+void servoMixer(void) 
+/* servo.c最关键的函数 把输入分配到舵机上 240730 jsl */ 
 {
     int16_t input[INPUT_SOURCE_COUNT]; // Range [-500:+500]
     static int16_t currentOutput[MAX_SERVO_RULES];
 
-    if (FLIGHT_MODE(PASSTHRU_MODE)) {   // 手飞叫Passthrough 240730 by JJJJJllll
+    if (FLIGHT_MODE(PASSTHRU_MODE)) {   
+        /* 手飞叫Passthrough 注意我们用的不是这个、是angle mode 240730 jsl */
         // Direct passthru from RX
         input[INPUT_STABILIZED_ROLL] = rcCommand[ROLL];
         input[INPUT_STABILIZED_PITCH] = rcCommand[PITCH];
         input[INPUT_STABILIZED_YAW] = rcCommand[YAW];
-
-        // 现在必须角度设为180才能达到90度，为了解决扩大scaling尝试，这里只对手飞起作用（但bf不分offboard，改手飞就够了）240730 by JJJJJllll
-        //input[INPUT_STABILIZED_ROLL] = rcCommand[ROLL] * 2.0f;
-        //input[INPUT_STABILIZED_PITCH] = rcCommand[PITCH] * 2.0f;
-        // 确认pidsum没用、舵机最大角度固定为angleLimit的一半
     } else {
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
         input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * PID_SERVO_MIXER_SCALING;
         input[INPUT_STABILIZED_PITCH] = pidData[FD_PITCH].Sum * PID_SERVO_MIXER_SCALING;
         input[INPUT_STABILIZED_YAW] = pidData[FD_YAW].Sum * PID_SERVO_MIXER_SCALING;
+        /* 1. 求舵机输入（pidData.Sum in -> scale -> input source out)
+           变量：input source共14个，其中RPY3个来自pidData.Sum（角速度环输出）、双旋翼只用PY两个
+           问题：舵机最大角度是angleLimit/2、设为180才能达到90度
+           思路：增大input可以1解禁pidSum 2放大scale
+           解决：没改pidSumLimit、把scale从0.7改为3、丝滑到90度 
+           240731 jsl */
+        /*
+           新问题：不上桨一切OK、上桨后舵机在0指令时自激振荡发散
+           原因：反扭力矩较大
+           思路：加rate：小数值还乘0.7、大数值才乘3
+           尝试1：bangbang，会在切换处振荡
+           尝试2：线性0.7-3，发现振荡
+           240731 jsl */
+        // input[INPUT_STABILIZED_PITCH] = ABS(pidData[FD_PITCH].Sum) < PIDSUM_LIMIT * 0.7f? pidData[FD_PITCH].Sum * PID_SERVO_MIXER_SCALING : pidData[FD_PITCH].Sum * 3.0f;
+        // input[INPUT_STABILIZED_PITCH] = pidData[FD_PITCH].Sum * (0.7f + 2.3f * ABS(pidData[FD_PITCH].Sum) / PIDSUM_LIMIT);
 
         // Reverse yaw servo when inverted in 3D mode
         if (featureIsEnabled(FEATURE_3D) && (rcData[THROTTLE] < rxConfig()->midrc)) {
@@ -464,6 +492,10 @@ void servoMixer(void)
     for (int i = 0; i < servoRuleCount; i++) {
         // consider rule if no box assigned or box is active
         if (currentServoMixer[i].box == 0 || IS_RC_MODE_ACTIVE(BOXSERVO1 + currentServoMixer[i].box - 1)) {
+            /* currentServoMixer 是servo rules的数组
+               每个元素是一个servo rule、
+               每个rule又是个结构体、包含 box, inputSource, targetChannel等
+               240731 jsl*/
             uint8_t target = currentServoMixer[i].targetChannel;
             uint8_t from = currentServoMixer[i].inputSource;
             uint16_t servo_width = servoParams(target)->max - servoParams(target)->min;
@@ -472,6 +504,9 @@ void servoMixer(void)
 
             if (currentServoMixer[i].speed == 0)
                 currentOutput[i] = input[from];
+                /* 2. 按rule循环、得出rule对应的输出
+                input in -> currentOutput out 
+                240731 jsl*/
             else {
                 if (currentOutput[i] < input[from])
                     currentOutput[i] = constrain(currentOutput[i] + currentServoMixer[i].speed, currentOutput[i], input[from]);
@@ -479,6 +514,11 @@ void servoMixer(void)
                     currentOutput[i] = constrain(currentOutput[i] - currentServoMixer[i].speed, input[from], currentOutput[i]);
             }
 
+            /* 3. 按rule循环，把rule的输出给target servo
+            双旋翼每个舵机有2个rule
+            currentOutput in -> * rate * direction -> servo[target] out 
+            target指左舵/右舵
+            240731 jsl*/
             servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate) / 100, min, max);
         } else {
             currentOutput[i] = 0;
