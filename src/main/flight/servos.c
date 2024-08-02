@@ -54,6 +54,8 @@
 #include "pg/rx.h"
 
 #include "rx/rx.h"
+#include "build/debug.h" // 为了记录servo 240802 jsl
+#define SERVO_LOG_DEBUG_LEFT // 舵机记录debug左舵机 240802 jsl
 
 
 PG_REGISTER_WITH_RESET_FN(servoConfig_t, servoConfig, PG_SERVO_CONFIG, 0);
@@ -348,8 +350,14 @@ static void filterServos(void);
 
 void writeServos(void)
 {
-    servoTable();
-    filterServos();
+    servoTable(); // 这里调用servoTable(), 拿到servo[]数据 240802 jsl
+    filterServos(); // 对servo[]数据滤波 240802 jsl
+    /*
+    这里log的是控制指令+中值+滤波的最终servo值
+    240802 jsl
+    */
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 6, servo[SERVO_BICOPTER_LEFT] * 0.1f);
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_RIGHT] * 0.1f);
 
     uint8_t servoIndex = 0;
     switch (getMixerMode()) {
@@ -378,7 +386,7 @@ void writeServos(void)
     case MIXER_BICOPTER:
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT);
-        // 最终写入舵机角度指令 240730 jsl
+        // 最终写入双旋翼舵机角度指令 servo last 240730 jsl
         break;
 
     case MIXER_HELI_120_CCPM:
@@ -446,7 +454,7 @@ void servoMixer(void)
            变量：input source共14个，其中RPY3个来自pidData.Sum（角速度环输出）、双旋翼只用PY两个
            问题：舵机最大角度是angleLimit/2、设为180才能达到90度
            思路：增大input可以1解禁pidSum 2放大scale
-           解决：没改pidSumLimit、把scale从0.7改为3、丝滑到90度 
+           解决：没改pidSumLimit、把scale从0.7改为3、丝滑到90度（不带桨）
            240731 jsl */
         /*
            新问题：不上桨一切OK、上桨后舵机在0指令时自激振荡发散
@@ -520,15 +528,75 @@ void servoMixer(void)
             target指左舵/右舵
             240731 jsl*/
             servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate) / 100, min, max);
+            
+            /*
+            计划：直接在servo上加前馈，使它达到90度、不影响pid
+            给400就很接近90度了
+            240802 jsl
+            */
+            servo[target] += 400;
+
+            /*
+            记录log servo值备查
+            发现中点是600而不是1500
+            这里记录的是未加中值、未滤波的原始指令
+            240802 jsl
+            */
+            // if (target == SERVO_BICOPTER_LEFT){
+            //     DEBUG_SET(DEBUG_ANGLE_MODE, 4, servo[target]);
+            // }
+            // else if(target == SERVO_BICOPTER_RIGHT){
+            //     DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[target]);
+            // }
+            
+
+
         } else {
             currentOutput[i] = 0;
         }
     }
+    /*
+    logdebug 1. 记录未加中值、未滤波的原始指令 (700 800) 240802 jsl
+    */
+#ifdef SERVO_LOG_DEBUG_LEFT
+    DEBUG_SET(DEBUG_ANGLE_MODE, 4, servo[SERVO_BICOPTER_LEFT]);
+#endif
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[SERVO_BICOPTER_RIGHT]);
 
     for (int i = 0; i < MAX_SUPPORTED_SERVOS; i++) {
-        servo[i] = ((int32_t)servoParams(i)->rate * servo[i]) / 100L;
+        servo[i] = ((int32_t)servoParams(i)->rate * servo[i]) / 100L; // 有个放大0-1.25倍，但一般就是1倍，240802 jsl
+
+        /*logdebug 2. 记录有方向的指令*/
+#ifdef SERVO_LOG_DEBUG_LEFT
+        if (i == SERVO_BICOPTER_LEFT){
+            DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[i]);
+        }
+#endif
+
+        /*logdebug 3. 记录中值*/
+#ifdef SERVO_LOG_DEBUG_LEFT
+        if (i == SERVO_BICOPTER_LEFT){
+            DEBUG_SET(DEBUG_ANGLE_MODE, 6, determineServoMiddleOrForwardFromChannel(i));
+        }
+#endif
+
         servo[i] += determineServoMiddleOrForwardFromChannel(i);
+
+        /*logdebug 4. 记录加中值后的指令*/
+#ifdef SERVO_LOG_DEBUG_LEFT
+        if (i == SERVO_BICOPTER_LEFT){
+            DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[i]);
+        }
+#endif
     }
+
+
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 6, determineServoMiddleOrForwardFromChannel(SERVO_BICOPTER_LEFT));
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_LEFT]);
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 5, determineServoMiddleOrForwardFromChannel(SERVO_BICOPTER_RIGHT));
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_LEFT]);
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 6, servo[SERVO_BICOPTER_LEFT]);
+    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_RIGHT]);
 }
 
 
@@ -550,6 +618,10 @@ static void servoTable(void)
     case MIXER_GIMBAL:
         servoMixer();
         break;
+    /*
+    servoTable函数判断机型，如果是三旋翼用xx、其他都用servoMixer()
+    240802 jsl
+    */
 
     /*
     case MIXER_GIMBAL:
@@ -579,7 +651,7 @@ static void servoTable(void)
         }
     }
 
-    // constrain servos
+    // constrain servos 舵机限幅 240802 jsl
     for (int i = 0; i < MAX_SUPPORTED_SERVOS; i++) {
         servo[i] = constrain(servo[i], servoParams(i)->min, servoParams(i)->max); // limit the values
     }

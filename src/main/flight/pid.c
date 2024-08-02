@@ -383,10 +383,12 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // it MUST be very delayed to avoid early overshoot and being too aggressive
     angleFeedforward = pt3FilterApply(&pidRuntime.angleFeedforwardPt3[axis], angleFeedforward);
 #endif
-    //240728 jsl
-    if (axis == FD_PITCH){
-        DEBUG_SET(DEBUG_ANGLE_MODE, 7, currentPidSetpoint); 
-    }
+
+    // // 记录进来的sp，240728 jsl
+    // if (axis == FD_PITCH){
+    //     DEBUG_SET(DEBUG_ANGLE_MODE, 7, currentPidSetpoint); 
+    // }
+
     // 240728 jsl, 1 line no setpoint
     float angleTarget = angleLimit * currentPidSetpoint * pidRuntime.maxRcRateInv[axis];
 
@@ -428,9 +430,9 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
         DEBUG_SET(DEBUG_ANGLE_MODE, 1, currentAngle * 10.0f);
         DEBUG_SET(DEBUG_ANGLE_MODE, 2, currentPidSetpoint * 10.0f);
         DEBUG_SET(DEBUG_ANGLE_MODE, 3, angleRate * 10.0f);
-        DEBUG_SET(DEBUG_ANGLE_MODE, 4, currentPidSetpoint); // 后4位不乘在bfl中看起来是真值
-        DEBUG_SET(DEBUG_ANGLE_MODE, 5, getSetpointRate(axis)); 
-        DEBUG_SET(DEBUG_ANGLE_MODE, 6, getMaxRcRate(axis));
+        //DEBUG_SET(DEBUG_ANGLE_MODE, 4, currentPidSetpoint); // 后4位不乘在bfl中看起来是真值
+        //DEBUG_SET(DEBUG_ANGLE_MODE, 4, getSetpointRate(axis)); 
+        //DEBUG_SET(DEBUG_ANGLE_MODE, 5, getMaxRcRate(axis));
     }
     //logging
     if (axis == FD_ROLL) {
