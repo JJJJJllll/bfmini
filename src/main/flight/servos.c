@@ -55,7 +55,14 @@
 
 #include "rx/rx.h"
 #include "build/debug.h" // 为了记录servo 240802 jsl
-#define SERVO_LOG_DEBUG_LEFT // 舵机记录debug左舵机 240802 jsl
+/*
+设计三个宏，分别用来单独分析左/右舵机的细分数据、和拿左右舵机的粗分数据
+三者同时只能取一个，因为debug变量总数不够
+240803 jsl
+*/
+// #define SERVO_LOG_DEBUG_LEFT // 单独记录debug左舵机 240802 jsl
+// #define SERVO_LOG_DEBUG_RIGHT // 单独记录debug右舵机 240803 jsl
+#define SERVO_LOG_BI // 记录双旋翼的左右舵机 240803 jsl
 
 
 PG_REGISTER_WITH_RESET_FN(servoConfig_t, servoConfig, PG_SERVO_CONFIG, 0);
@@ -350,14 +357,21 @@ static void filterServos(void);
 
 void writeServos(void)
 {
-    servoTable(); // 这里调用servoTable(), 拿到servo[]数据 240802 jsl
+    servoTable(); 
+    // 这里调用servoTable()，Table先调用servoMixer()记录控制指令+方向+中值，再由Table限幅, 拿到servo[]数据 240802 jsl
+    // 1. 记录控制指令+中值+限幅的servo值 240803 jsl
+#ifdef SERVO_LOG_BI
+    DEBUG_SET(DEBUG_ANGLE_MODE, 4, servo[SERVO_BICOPTER_LEFT]);
+    DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[SERVO_BICOPTER_RIGHT]);
+#endif
+
     filterServos(); // 对servo[]数据滤波 240802 jsl
-    /*
-    这里log的是控制指令+中值+滤波的最终servo值
-    240802 jsl
-    */
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 6, servo[SERVO_BICOPTER_LEFT] * 0.1f);
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_RIGHT] * 0.1f);
+
+    // 2. 这里log的是+滤波的最终servo值 240802 jsl
+#ifdef SERVO_LOG_BI
+    DEBUG_SET(DEBUG_ANGLE_MODE, 6, servo[SERVO_BICOPTER_LEFT]);
+    DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_RIGHT]);
+#endif
 
     uint8_t servoIndex = 0;
     switch (getMixerMode()) {
@@ -386,7 +400,7 @@ void writeServos(void)
     case MIXER_BICOPTER:
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT);
-        // 最终写入双旋翼舵机角度指令 servo last 240730 jsl
+        // 3. 最终写入双旋翼舵机角度指令 servo last 240730 jsl
         break;
 
     case MIXER_HELI_120_CCPM:
@@ -534,7 +548,7 @@ void servoMixer(void)
             给400就很接近90度了
             240802 jsl
             */
-            servo[target] += 400;
+            servo[target] -= 500;
 
             /*
             记录log servo值备查
@@ -561,7 +575,9 @@ void servoMixer(void)
 #ifdef SERVO_LOG_DEBUG_LEFT
     DEBUG_SET(DEBUG_ANGLE_MODE, 4, servo[SERVO_BICOPTER_LEFT]);
 #endif
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[SERVO_BICOPTER_RIGHT]);
+#ifdef SERVO_LOG_DEBUG_RIGHT
+    DEBUG_SET(DEBUG_ANGLE_MODE, 4, servo[SERVO_BICOPTER_RIGHT]);
+#endif
 
     for (int i = 0; i < MAX_SUPPORTED_SERVOS; i++) {
         servo[i] = ((int32_t)servoParams(i)->rate * servo[i]) / 100L; // 有个放大0-1.25倍，但一般就是1倍，240802 jsl
@@ -572,10 +588,21 @@ void servoMixer(void)
             DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[i]);
         }
 #endif
+#ifdef SERVO_LOG_DEBUG_RIGHT
+        if (i == SERVO_BICOPTER_RIGHT){
+            DEBUG_SET(DEBUG_ANGLE_MODE, 5, servo[i]);
+        }
+#endif
 
         /*logdebug 3. 记录中值*/
 #ifdef SERVO_LOG_DEBUG_LEFT
         if (i == SERVO_BICOPTER_LEFT){
+            DEBUG_SET(DEBUG_ANGLE_MODE, 6, determineServoMiddleOrForwardFromChannel(i));
+        }
+#endif
+#ifdef SERVO_LOG_DEBUG_RIGHT
+        if (i == SERVO_BICOPTER_RIGHT){
+            // 确认了debug是16位、数据都不用缩小 240803 jsl
             DEBUG_SET(DEBUG_ANGLE_MODE, 6, determineServoMiddleOrForwardFromChannel(i));
         }
 #endif
@@ -588,15 +615,12 @@ void servoMixer(void)
             DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[i]);
         }
 #endif
+#ifdef SERVO_LOG_DEBUG_RIGHT
+        if (i == SERVO_BICOPTER_RIGHT){
+            DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[i]);
+        }
+#endif
     }
-
-
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 6, determineServoMiddleOrForwardFromChannel(SERVO_BICOPTER_LEFT));
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_LEFT]);
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 5, determineServoMiddleOrForwardFromChannel(SERVO_BICOPTER_RIGHT));
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_LEFT]);
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 6, servo[SERVO_BICOPTER_LEFT]);
-    // DEBUG_SET(DEBUG_ANGLE_MODE, 7, servo[SERVO_BICOPTER_RIGHT]);
 }
 
 
@@ -634,7 +658,7 @@ static void servoTable(void)
         break;
     }
 
-    // camera stabilization
+    // camera stabilization 没操作双旋翼、无关 240803 jsl
     if (featureIsEnabled(FEATURE_SERVO_TILT)) {
         // center at fixed position, or vary either pitch or roll by RC channel
         servo[SERVO_GIMBAL_PITCH] = determineServoMiddleOrForwardFromChannel(SERVO_GIMBAL_PITCH);
@@ -651,7 +675,8 @@ static void servoTable(void)
         }
     }
 
-    // constrain servos 舵机限幅 240802 jsl
+    // constrain servos 做了舵机限幅、和双旋翼有关
+    /*logdebug 5. 限幅后的指令  240803 jsl*/
     for (int i = 0; i < MAX_SUPPORTED_SERVOS; i++) {
         servo[i] = constrain(servo[i], servoParams(i)->min, servoParams(i)->max); // limit the values
     }
@@ -681,6 +706,7 @@ static void filterServos(void)
     if (servoConfig()->servo_lowpass_freq) {
         for (int servoIdx = 0; servoIdx < MAX_SUPPORTED_SERVOS; servoIdx++) {
             servo[servoIdx] = lrintf(biquadFilterApply(&servoFilter[servoIdx], (float)servo[servoIdx]));
+            // 默认没用滤波，可以直接用这个做预测 240803 jsl
             // Sanity check
             servo[servoIdx] = constrain(servo[servoIdx], servoParams(servoIdx)->min, servoParams(servoIdx)->max);
         }
