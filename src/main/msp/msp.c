@@ -1188,6 +1188,16 @@ case MSP_NAME:
         break;
 #endif
 
+    case MSP_WP:
+        sbufWriteU32(dst, position_msp.msg1);
+        sbufWriteU32(dst, position_msp.msg2);
+        sbufWriteU32(dst, position_msp.msg3);
+        sbufWriteU32(dst, position_msp.msg4);
+        sbufWriteU32(dst, position_msp.msg5);
+        sbufWriteU32(dst, position_msp.msg6);
+        sbufWriteU32(dst, position_msp.msg7);
+        break;
+
     case MSP_MOTOR:
         for (unsigned i = 0; i < 8; i++) {
 #ifdef USE_MOTOR

@@ -542,13 +542,15 @@ void servoMixer(void)
             target指左舵/右舵
             240731 jsl*/
             servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate) / 100, min, max);
+            position_msp.msg2 = servo[SERVO_BICOPTER_LEFT]*100.0f;
+            position_msp.msg3 = servo[SERVO_BICOPTER_RIGHT]*100.0f;
             
             /*
             计划：直接在servo上加前馈，使它达到90度、不影响pid
             给400就很接近90度了
             240802 jsl
             */
-            servo[target] -= 500;
+            //servo[target] -= 500;
 
             /*
             记录log servo值备查

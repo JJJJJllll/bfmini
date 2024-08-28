@@ -479,3 +479,5 @@ float pidGetDT();
 float pidGetPidFrequency();
 
 float dynLpfCutoffFreq(float throttle, uint16_t dynLpfMin, uint16_t dynLpfMax, uint8_t expo);
+
+float estimateServoAngle(float inputAngle, float DT);

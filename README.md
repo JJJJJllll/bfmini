@@ -13,6 +13,13 @@ This fork differs from Baseflight and Cleanflight in that it focuses on flight p
 | 01-11-2022 | Firmware 4.4 Feature freeze |
 | 29-01-2023 | Firmware 4.4 Release |
 
+## Compile for DECAF
+```
+make arm_sdk_install
+make configs
+make HAKRCF405V2
+```
+
 
 ## News
 

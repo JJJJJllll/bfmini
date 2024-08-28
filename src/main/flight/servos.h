@@ -23,6 +23,7 @@
 #include "pg/pg.h"
 #include "drivers/io_types.h"
 #include "drivers/pwm_output.h"
+#include "flight/position.h"
 
 #define PWM_SERVO_MIN   500       // minimum servo PWM pulse width which we can set from cli
 #define PWM_SERVO_MAX   2500      // maximum servo PWM pulse width which we can set from cli

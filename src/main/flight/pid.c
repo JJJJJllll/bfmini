@@ -50,6 +50,7 @@
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/rpm_filter.h"
+#include "flight/position.h"
 
 #include "io/gps.h"
 
@@ -111,6 +112,12 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
 #define ACRO_TRAINER_LOOKAHEAD_RATE_LIMIT 500.0f  // Max gyro rate for lookahead time scaling
 #define ACRO_TRAINER_SETPOINT_LIMIT       1000.0f // Limit the correcting setpoint
 #endif // USE_ACRO_TRAINER
+
+// JJJJJJJack 20240822 sim servo with controller
+float servoAngleFeedback;
+float servoAngularRateFeedback;
+float servoRateIntegral;
+#define motorInertia 4e-5f
 
 #define CRASH_RECOVERY_DETECTION_DELAY_US 1000000  // 1 second delay before crash recovery detection is active after entering a self-level mode
 
@@ -398,11 +405,15 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #ifdef USE_GPS_RESCUE
     angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
 #endif
-    const float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+    float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+    // Enable rotor disk angle feedback, only in pitch axis for bicopter
+    if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
+        currentAngle += servoAngleFeedback;
     const float errorAngle = angleTarget - currentAngle;
     // 角度环=反馈+前馈  240730 jsl
     float angleRate = errorAngle * pidRuntime.angleGain; //+ angleFeedforward; 240728 jsl
-      
+    if(axis == FD_PITCH)
+        position_msp.msg5 =  currentAngle*100.0f;
     // minimise cross-axis wobble due to faster yaw responses than roll or pitch, and make co-ordinated yaw turns
     // by compensating for the effect of yaw on roll while pitched, and on pitch while rolled
     // earthRef code here takes about 76 cycles, if conditional on angleEarthRef it takes about 100.  sin_approx costs most of those cycles.
@@ -1163,6 +1174,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             pidData[axis].Sum = pidSum;
         }
     }
+    // JJJJJJJack 20240822
+    // Estimate servo output
+    position_msp.msg1 = pidData[FD_PITCH].Sum*100.0;
+    float servoDesiredAngle = pidData[FD_PITCH].Sum*PID_SERVO_MIXER_SCALING/1000.0f*90.0f;
+    float servoPitch = estimateServoAngle(servoDesiredAngle, pidRuntime.dT);
+    position_msp.msg4 = servoPitch*100.0;
 
     // 零油门pidData全置零？ 240730 jsl
     // Disable PID control if at zero throttle or if gyro overflow detected
@@ -1274,4 +1291,34 @@ float pidGetDT(void)
 float pidGetPidFrequency(void)
 {
     return pidRuntime.pidFrequency;
+}
+
+// JJJJJJJack 20240822
+// Simulate the OMG servo with controller
+float estimateServoAngle(float inputAngle, float DT)
+{
+    // Define Parameters
+    const float simServoAngleKP = 60.0f;
+    const float simServoMaxRate = 1400.0f;
+    const float simServoRateKP = 0.008f;
+    const float simServoRateKI = 0.008f;
+    //const float simServoRateKD = 0.008f;
+    // Calculate angle error
+    float servoAngleError = inputAngle - servoAngleFeedback;
+    // Get desired angular rate via angle P
+    float servoDesiredAngularRate = servoAngleError * simServoAngleKP;
+    servoDesiredAngularRate = constrainf(servoDesiredAngularRate, -simServoMaxRate, simServoMaxRate);
+    // Calculate angular rate error
+    float servoAngularRateError = servoDesiredAngularRate - servoAngularRateFeedback;
+    // Angular rate PID
+    float servoTorqueP = servoAngularRateError * simServoRateKP;
+    servoRateIntegral += servoAngularRateError;
+    float servoTorqueI = servoRateIntegral * simServoRateKI;
+    //float servoTorqueD = -servoAngularRateFeedback/ * simServoRateKD;
+    float servoTorque = servoTorqueP + servoTorqueI;
+    float servoAngularAcc = servoTorque / motorInertia;
+    // Intergrating acc to rate and rate to angle
+    servoAngularRateFeedback += servoAngularAcc * DT;
+    servoAngleFeedback += servoAngularRateFeedback * DT;
+    return servoAngleFeedback;
 }
