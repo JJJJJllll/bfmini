@@ -113,11 +113,29 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
 #define ACRO_TRAINER_SETPOINT_LIMIT       1000.0f // Limit the correcting setpoint
 #endif // USE_ACRO_TRAINER
 
+#ifdef ROTORDISK_FEEDBACK
 // JJJJJJJack 20240822 sim servo with controller
 float servoAngleFeedback;
 float servoAngularRateFeedback;
 float servoRateIntegral;
 #define motorInertia 4e-5f
+float PitchTarget;
+// For miniBi
+#ifdef CONFIGURATION_TAILSITTER
+// For tailsitter (with linkage)
+float servo2RotorDiskMap_K = 1.852;
+float servo2RotorDiskMap_B = 0.0;
+#else
+// For miniBi (servo driving motor directly)
+float servo2RotorDiskMap_K = 1.0;
+float servo2RotorDiskMap_B = 0.0;
+#endif
+
+// JJJJJJJack& Jsl 20240910 sim a lowpass filter
+float LP_A = 50, LP_last_out = 0, LP_last_in = 0;
+float servoLastDesiredAngle = 0.0;
+float diskDiffRate = 0.0, diskAngularRate = 0.0;
+#endif
 
 #define CRASH_RECOVERY_DETECTION_DELAY_US 1000000  // 1 second delay before crash recovery detection is active after entering a self-level mode
 
@@ -277,6 +295,7 @@ const angle_index_t rcAliasToAngleIndexMap[] = { AI_ROLL, AI_PITCH };
 void pidResetIterm(void)
 {
     for (int axis = 0; axis < 3; axis++) {
+        //if(!(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH))
         pidData[axis].I = 0.0f;
 #if defined(USE_ABSOLUTE_CONTROL)
         axisError[axis] = 0.0f;
@@ -406,14 +425,29 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
 #endif
     float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+
+#ifdef ROTORDISK_FEEDBACK
+    // Save the pitch target direct feedforward
+    if(axis == FD_PITCH)
+        PitchTarget = currentAngle - angleTarget;
+    position_msp.msg1 = PitchTarget*100.0f;
+#endif
+
+#ifdef ROTORDISK_FEEDBACK
+    // Mapping servo angle to motor pitch angle
+    // const float rotorDiskAngleFeedback = servoAngleFeedback * 1.891f + 2.689f;
+    // Mapping servo angle to motor pitch angle
+    const float rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
     // Enable rotor disk angle feedback, only in pitch axis for bicopter
     if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
-        currentAngle += servoAngleFeedback;
+        currentAngle += rotorDiskAngleFeedback;
+#endif
     const float errorAngle = angleTarget - currentAngle;
+    //position_msp.msg3 = rotorDiskAngleFeedback*100.0f;
     // 角度环=反馈+前馈  240730 jsl
     float angleRate = errorAngle * pidRuntime.angleGain; //+ angleFeedforward; 240728 jsl
-    if(axis == FD_PITCH)
-        position_msp.msg5 =  currentAngle*100.0f;
+    // if(axis == FD_PITCH)
+    //     position_msp.msg5 =  currentAngle*100.0f;
     // minimise cross-axis wobble due to faster yaw responses than roll or pitch, and make co-ordinated yaw turns
     // by compensating for the effect of yaw on roll while pitched, and on pitch while rolled
     // earthRef code here takes about 76 cycles, if conditional on angleEarthRef it takes about 100.  sin_approx costs most of those cycles.
@@ -888,10 +922,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
     // iTerm windup (attenuation of iTerm if motorMix range is large)
     float dynCi = 1.0;
-    if (pidRuntime.itermWindupPointInv > 1.0f) {
+    if (pidRuntime.itermWindupPointInv > 1.0f && mixerConfig()->mixerMode != MIXER_BICOPTER) {
         dynCi = constrainf((1.0f - getMotorMixRange()) * pidRuntime.itermWindupPointInv, 0.0f, 1.0f);
     }
-
     // Precalculate gyro delta for D-term here, this allows loop unrolling
     float gyroRateDterm[XYZ_AXIS_COUNT];
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
@@ -977,7 +1010,14 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
         // -----calculate error rate
         // 3.1 RPY角速度误差 (currentPidSetpoint in, errorRate out) 240730 jsl
-        const float gyroRate = gyro.gyroADCf[axis]; // Process variable from gyro output in deg/sec
+        // const float gyroRate = gyro.gyroADCf[axis]; // Process variable from gyro output in deg/sec
+        float gyroRate = gyro.gyroADCf[axis]; // Process variable from gyro output in deg/sec
+        // 20240910 Enable rotor disk angular rate feedback, only in pitch axis for bicopter
+        // if (mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH) {
+        //    gyroRate += diskAngularRate;//lowPassFilterUpdate(servoAngularRateFeedback, pidRuntime.dT);
+        // }
+        // position_msp.msg4 = gyro.gyroADCf[FD_PITCH] * 100.0;
+        
         float errorRate = currentPidSetpoint - gyroRate; // r - y
 #if defined(USE_ACC)
         handleCrashRecovery(
@@ -1027,7 +1067,6 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // 3.3 I控制（itermErrorRate in, pidData[axis].I out）
         const float iTermChange = (Ki + pidRuntime.itermAccelerator) * dynCi * pidRuntime.dT * itermErrorRate;
         pidData[axis].I = constrainf(previousIterm + iTermChange, -pidRuntime.itermLimit, pidRuntime.itermLimit);
-
         // -----calculate D component
 
         float pidSetpointDelta = 0;
@@ -1118,7 +1157,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         const float feedforwardGain = launchControlActive ? 0.0f : pidRuntime.pidCoefficient[axis].Kf;
         // 3.5 F控制（pidData.F out） 240730 jsl
         pidData[axis].F = feedforwardGain * pidSetpointDelta;
-
+#ifdef ROTORDISK_FEEDBACK
+        if(axis == FD_PITCH){
+            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * 1000.0f / 90.0f;
+            position_msp.msg2 = pidData[axis].F * 100.0f;
+        }
+#endif        
 #ifdef USE_YAW_SPIN_RECOVERY
         if (yawSpinActive) {
             pidData[axis].I = 0;  // in yaw spin always disable I
@@ -1174,12 +1218,16 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             pidData[axis].Sum = pidSum;
         }
     }
+#ifdef ROTORDISK_FEEDBACK
     // JJJJJJJack 20240822
     // Estimate servo output
-    position_msp.msg1 = pidData[FD_PITCH].Sum*100.0;
     float servoDesiredAngle = pidData[FD_PITCH].Sum*PID_SERVO_MIXER_SCALING/1000.0f*90.0f;
-    float servoPitch = estimateServoAngle(servoDesiredAngle, pidRuntime.dT);
-    position_msp.msg4 = servoPitch*100.0;
+    estimateServoAngle(servoDesiredAngle, pidRuntime.dT);
+    // JJJJJJJack & Jsl 20240910
+    // Estimate disk angular rate using diff + l`owpass
+    estimateDiskAngularRate(servoDesiredAngle, pidRuntime.dT);
+#endif
+    
 
     // 零油门pidData全置零？ 240730 jsl
     // Disable PID control if at zero throttle or if gyro overflow detected
@@ -1187,7 +1235,13 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     if (!pidRuntime.pidStabilisationEnabled || gyroOverflowDetected()) {
         for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
             pidData[axis].P = 0;
-            pidData[axis].I = 0;
+            // 241031 JJJJJJJack Do not clean the I for bicopter
+            // Intended for vertical takeoff
+            //if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH){
+                
+            //}else{
+                pidData[axis].I = 0;
+            //}
             pidData[axis].D = 0;
             pidData[axis].F = 0;
 
@@ -1293,6 +1347,7 @@ float pidGetPidFrequency(void)
     return pidRuntime.pidFrequency;
 }
 
+#ifdef ROTORDISK_FEEDBACK
 // JJJJJJJack 20240822
 // Simulate the OMG servo with controller
 float estimateServoAngle(float inputAngle, float DT)
@@ -1322,3 +1377,24 @@ float estimateServoAngle(float inputAngle, float DT)
     servoAngleFeedback += servoAngularRateFeedback * DT;
     return servoAngleFeedback;
 }
+
+// JJJJJJJack & Jsl 20240910
+// Simulate a low pass filter for servo angular rate
+float lowPassFilterUpdate(float input, float DT){
+  float filtered_out = ((2.0f-LP_A*DT)*LP_last_out + LP_A*DT*(input+LP_last_in))/(LP_A*DT+2.0f);
+  LP_last_in = input;
+  LP_last_out = filtered_out;
+  return filtered_out;
+}
+
+// JJJJJJJack & Jsl 20240910
+// Estimate disk angular rate using diff + lowpass
+void estimateDiskAngularRate(float servoDesiredAngle, float DT){
+    // diff
+    diskDiffRate = (servoDesiredAngle - servoLastDesiredAngle) / DT; 
+    diskDiffRate = fabs(diskDiffRate) > 1500 ? 0 : diskDiffRate;
+    servoLastDesiredAngle = servoDesiredAngle;  
+    // lowpass
+    diskAngularRate = lowPassFilterUpdate(diskDiffRate, DT);
+}
+#endif

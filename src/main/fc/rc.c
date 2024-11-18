@@ -759,6 +759,16 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
             rcCommand[YAW] = rcCommandBuff.Z;
         }
     }
+
+#ifdef CONFIGURATION_TAILSITTER
+    // 20241107 For tailsitter only
+    // Switch ROLL and YAW in angular mode
+    if(!FLIGHT_MODE(ANGLE_MODE)){
+        int16_t tempSwitch = rcCommand[YAW];
+        rcCommand[YAW] = rcCommand[ROLL];
+        rcCommand[ROLL] = -tempSwitch;
+    }
+#endif
 }
 
 void resetYawAxis(void)

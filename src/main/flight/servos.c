@@ -146,10 +146,28 @@ static const servoMixer_t servoMixerBI[] = {
     /* input source共14个、双旋翼只用2个：stabilized yaw + pitch
        从servo的角度看过去，yaw是两个都cw转、pitch是一个cw一个ccw -> 对yaw都+1、对pitch+1-1 
        左舵 偏航输入 +100%响应 不限速 MIN0 MAX100 无box 240730 jsl */
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,   100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,   100, 0, 0, 100, 0 },
+    /*
+    上拉
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,     100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,    100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
+    下推
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,     100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,    100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
+    */
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,     100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,    100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
+#ifdef CONFIGURATION_TAILSITTER
+    { SERVO_BICOPTER_LEFT_ELEVON, INPUT_STABILIZED_YAW,    -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT_ELEVON, INPUT_STABILIZED_PITCH,   100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_YAW,   -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
+#endif
 };
 
 static const servoMixer_t servoMixerDual[] = {
@@ -400,6 +418,10 @@ void writeServos(void)
     case MIXER_BICOPTER:
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT);
+#ifdef CONFIGURATION_TAILSITTER
+        writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT_ELEVON);
+        writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT_ELEVON);
+#endif
         // 3. 最终写入双旋翼舵机角度指令 servo last 240730 jsl
         break;
 
@@ -542,8 +564,8 @@ void servoMixer(void)
             target指左舵/右舵
             240731 jsl*/
             servo[target] += servoDirection(target, from) * constrain(((int32_t)currentOutput[i] * currentServoMixer[i].rate) / 100, min, max);
-            position_msp.msg2 = servo[SERVO_BICOPTER_LEFT]*100.0f;
-            position_msp.msg3 = servo[SERVO_BICOPTER_RIGHT]*100.0f;
+            // position_msp.msg2 = servo[SERVO_BICOPTER_LEFT]*100.0f;
+            // position_msp.msg3 = servo[SERVO_BICOPTER_RIGHT]*100.0f;
             
             /*
             计划：直接在servo上加前馈，使它达到90度、不影响pid

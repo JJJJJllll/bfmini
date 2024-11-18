@@ -70,6 +70,10 @@
 
 #define TPA_MAX 100
 
+// JJJJJJJack MACRO for rotor disk feedback
+#define ROTORDISK_FEEDBACK
+//#define CONFIGURATION_TAILSITTER
+
 typedef enum {
     TPA_MODE_PD,
     TPA_MODE_D
@@ -480,4 +484,10 @@ float pidGetPidFrequency();
 
 float dynLpfCutoffFreq(float throttle, uint16_t dynLpfMin, uint16_t dynLpfMax, uint8_t expo);
 
+#ifdef ROTORDISK_FEEDBACK
 float estimateServoAngle(float inputAngle, float DT);
+
+float lowPassFilterUpdate(float input, float DT); // 20240910 lowpass
+
+void estimateDiskAngularRate(float servoDesiredAngle, float DT); // 20240910 diff + lowpass
+#endif

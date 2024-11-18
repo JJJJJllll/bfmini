@@ -696,7 +696,14 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
             scaledAxisPidRoll  * activeMixer[i].roll +
             scaledAxisPidPitch * activeMixer[i].pitch +
             scaledAxisPidYaw   * activeMixer[i].yaw;
-
+        if(mixerConfig()->mixerMode == MIXER_BICOPTER){
+            // Motor mix for pitch for bicopter
+            // Turn it off for tailsitters takeoff flat
+            float PidPitchNoFeedForward = pidData[FD_PITCH].P + pidData[FD_PITCH].I + pidData[FD_PITCH].D;
+            float scaledPidPitchNoFeedForward = constrainf(PidPitchNoFeedForward, -currentPidProfile->pidSumLimit, currentPidProfile->pidSumLimit) / PID_MIXER_SCALING;
+            float PitchAugmentation = pow(sin(scaledPidPitchNoFeedForward*M_PI/2.0f),2);
+            mix += PitchAugmentation*0.3f;
+        }
         if (mix > motorMixMax) {
             motorMixMax = mix;
         } else if (mix < motorMixMin) {
