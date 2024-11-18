@@ -430,7 +430,6 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // Save the pitch target direct feedforward
     if(axis == FD_PITCH)
         PitchTarget = currentAngle - angleTarget;
-    position_msp.msg1 = PitchTarget*100.0f;
 #endif
 
 #ifdef ROTORDISK_FEEDBACK
@@ -984,6 +983,37 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         }
 #endif
 
+#ifdef CONFIGURATION_TAILSITTER
+        // Coordinate flight in rate mode for tailsitter fixed wing configuration
+        // Calculate currentPidSetpoint for yaw
+        if (axis == FD_YAW){
+            // get current attitude quaternion
+            float quat_ang[4], quat_90pitch[4], eulerYPR_90Pitch[3], quat_ang_fixedwing[4], eulerYPR_fixedwing[3];
+            quaternion q_ang = QUATERNION_INITIALIZE;
+            getQuaternion(&q_ang);
+            quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
+            // set 90 deg rotate quaternion for fixed wing mode
+            eulerYPR_90Pitch[0] = 0; eulerYPR_90Pitch[1] = -M_PIf/2; eulerYPR_90Pitch[2] = 0;
+            eul2quatZYX(eulerYPR_90Pitch, quat_90pitch);
+            // get fixed wing mode YPR euler angle
+            quaternionMultiply(quat_ang, quat_90pitch, quat_ang_fixedwing);
+            quat2eulZYX(quat_ang_fixedwing, eulerYPR_fixedwing);
+            position_msp.msg1 = RADIANS_TO_DEGREES(eulerYPR_fixedwing[2])*100;
+            position_msp.msg2 = RADIANS_TO_DEGREES(eulerYPR_fixedwing[1])*100;
+            position_msp.msg3 = RADIANS_TO_DEGREES(eulerYPR_fixedwing[0])*100;
+            // estimate airspeed
+            const float airspeed = 5.0f;
+            // calculate coordinate turn yaw setpoint (saturate input and output)
+            // limit roll and pitch to +-60
+            float RP_saturate = M_PIf / 3;
+            if(ABS(eulerYPR_fixedwing[1]) < RP_saturate )
+                currentPidSetpoint = RADIANS_TO_DEGREES(9.8f / airspeed * tanf(constrainf(eulerYPR_fixedwing[2], -RP_saturate, RP_saturate)) * cosf(eulerYPR_fixedwing[1]));
+            else
+                currentPidSetpoint = 0;
+            position_msp.msg4 = currentPidSetpoint * 100;
+        }
+#endif
+
 #ifdef USE_ACRO_TRAINER
         if ((axis != FD_YAW) && pidRuntime.acroTrainerActive && !pidRuntime.inCrashRecoveryMode && !launchControlActive) {
             currentPidSetpoint = applyAcroTrainer(axis, angleTrim, currentPidSetpoint);
@@ -1160,7 +1190,6 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef ROTORDISK_FEEDBACK
         if(axis == FD_PITCH){
             pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * 1000.0f / 90.0f;
-            position_msp.msg2 = pidData[axis].F * 100.0f;
         }
 #endif        
 #ifdef USE_YAW_SPIN_RECOVERY
@@ -1235,13 +1264,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     if (!pidRuntime.pidStabilisationEnabled || gyroOverflowDetected()) {
         for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) {
             pidData[axis].P = 0;
-            // 241031 JJJJJJJack Do not clean the I for bicopter
-            // Intended for vertical takeoff
-            //if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH){
-                
-            //}else{
-                pidData[axis].I = 0;
-            //}
+            pidData[axis].I = 0;
             pidData[axis].D = 0;
             pidData[axis].F = 0;
 
@@ -1397,4 +1420,88 @@ void estimateDiskAngularRate(float servoDesiredAngle, float DT){
     // lowpass
     diskAngularRate = lowPassFilterUpdate(diskDiffRate, DT);
 }
+#endif
+
+#ifdef CONFIGURATION_TAILSITTER
+
+void eul2quatZYX(float eulerAngle[3], float * quaternion)
+{
+    // from Wiki: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+    // Abbreviations for the various angular functions
+    float yaw = eulerAngle[0], pitch = eulerAngle[1], roll = eulerAngle[2];
+    float cy = cos(yaw * 0.5);
+    float sy = sin(yaw * 0.5);
+    float cp = cos(pitch * 0.5);
+    float sp = sin(pitch * 0.5);
+    float cr = cos(roll * 0.5);
+    float sr = sin(roll * 0.5);
+
+    quaternion[0] = cr * cp * cy + sr * sp * sy;
+    quaternion[1] = sr * cp * cy - cr * sp * sy;
+    quaternion[2] = cr * sp * cy + sr * cp * sy;
+    quaternion[3] = cr * cp * sy - sr * sp * cy;
+}
+
+void quat2eulZYX(float quaternion[4], float * eulerAngle)
+{
+    // from Wiki: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+    // roll (x-axis rotation)
+    float sinr_cosp = 2 * (quaternion[0] * quaternion[1] + quaternion[2] * quaternion[3]);
+    float cosr_cosp = 1 - 2 * (quaternion[1] * quaternion[1] + quaternion[2] * quaternion[2]);
+    eulerAngle[2] = atan2f(sinr_cosp, cosr_cosp);
+
+    // pitch (y-axis rotation)
+    float sinp = sqrt(1 + 2 * (quaternion[0] * quaternion[2] - quaternion[1] * quaternion[3]));
+    float cosp = sqrt(1 - 2 * (quaternion[0] * quaternion[2] - quaternion[1] * quaternion[3]));
+    eulerAngle[1] = 2 * atan2f(sinp, cosp) - M_PIf / 2;
+
+    // yaw (z-axis rotation)
+    float siny_cosp = 2 * (quaternion[0] * quaternion[3] + quaternion[1] * quaternion[2]);
+    float cosy_cosp = 1 - 2 * (quaternion[2] * quaternion[2] + quaternion[3] * quaternion[3]);
+    eulerAngle[0] = atan2f(siny_cosp, cosy_cosp);
+
+}
+
+float quaternionNorm(float quat[4])
+{
+    return quat[0]*quat[0] + quat[1]*quat[1] + quat[2]*quat[2] + quat[3]*quat[3];
+}
+
+void quaternionNormalize(float quat[4], float * result)
+{
+    float quaternion_norm = quaternionNorm(quat);
+    result[0] = quat[0] / sqrtf(quaternion_norm);
+    result[1] = quat[1] / sqrtf(quaternion_norm);
+    result[2] = quat[2] / sqrtf(quaternion_norm);
+    result[3] = quat[3] / sqrtf(quaternion_norm);
+}
+
+void quaternionMultiply(float q1[4], float q2[4], float * result)
+{
+    result[1] =  q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2] + q1[0] * q2[1];
+    result[2] = -q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1] + q1[0] * q2[2];
+    result[3] =  q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0] + q1[0] * q2[3];
+    result[0] = -q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3] + q1[0] * q2[0];
+}
+
+void quaternionConjugate(float quaternion[4], float * result)
+{
+    result[1] = -quaternion[1];
+    result[2] = -quaternion[2];
+    result[3] = -quaternion[3];
+    result[0] = quaternion[0];
+}
+
+void quaternionInverse(float quaternion[4], float * result)
+{
+    float quaternion_conjugate[4];
+    quaternionConjugate(quaternion, quaternion_conjugate);
+    float quaternion_norm = quaternionNorm(quaternion);
+    result[0] = quaternion_conjugate[0] / quaternion_norm;
+    result[1] = quaternion_conjugate[1] / quaternion_norm;
+    result[2] = quaternion_conjugate[2] / quaternion_norm;
+    result[3] = quaternion_conjugate[3] / quaternion_norm;
+    //qinv  = quatconj( q )./(quatnorm( q )*ones(1,4));
+}
+
 #endif

@@ -72,7 +72,7 @@
 
 // JJJJJJJack MACRO for rotor disk feedback
 #define ROTORDISK_FEEDBACK
-//#define CONFIGURATION_TAILSITTER
+#define CONFIGURATION_TAILSITTER
 
 typedef enum {
     TPA_MODE_PD,
@@ -490,4 +490,14 @@ float estimateServoAngle(float inputAngle, float DT);
 float lowPassFilterUpdate(float input, float DT); // 20240910 lowpass
 
 void estimateDiskAngularRate(float servoDesiredAngle, float DT); // 20240910 diff + lowpass
+#endif
+
+#ifdef CONFIGURATION_TAILSITTER
+void eul2quatZYX(float eulerAngle[3], float * quaternion);
+void quat2eulZYX(float quaternion[4], float * eulerAngle);
+float quaternionNorm(float quat[4]);
+void quaternionNormalize(float quat[4], float * result);
+void quaternionMultiply(float q1[4], float q2[4], float * result);
+void quaternionConjugate(float quaternion[4], float * result);
+void quaternionInverse(float quaternion[4], float * result);
 #endif
