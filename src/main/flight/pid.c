@@ -986,7 +986,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef CONFIGURATION_TAILSITTER
         // Coordinate flight in rate mode for tailsitter fixed wing configuration
         // Calculate currentPidSetpoint for yaw
-        if (axis == FD_YAW){
+        if (axis == FD_ROLL){
             // get current attitude quaternion
             float quat_ang[4], quat_90pitch[4], eulerYPR_90Pitch[3], quat_ang_fixedwing[4], eulerYPR_fixedwing[3];
             quaternion q_ang = QUATERNION_INITIALIZE;
@@ -1097,6 +1097,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // 3.3 I控制（itermErrorRate in, pidData[axis].I out）
         const float iTermChange = (Ki + pidRuntime.itermAccelerator) * dynCi * pidRuntime.dT * itermErrorRate;
         pidData[axis].I = constrainf(previousIterm + iTermChange, -pidRuntime.itermLimit, pidRuntime.itermLimit);
+#ifdef CONFIGURATION_TAILSITTER
+        // limit roll(yaw for fixed wing) integral in coordinate flight
+        if(!FLIGHT_MODE(ANGLE_MODE)){
+            pidData[FD_ROLL].I = constrainf(pidData[FD_ROLL].I, -50.0f, 50.0f);
+        }
+#endif
         // -----calculate D component
 
         float pidSetpointDelta = 0;
