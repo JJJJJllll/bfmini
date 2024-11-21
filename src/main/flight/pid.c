@@ -118,6 +118,7 @@ PG_RESET_TEMPLATE(pidConfig_t, pidConfig,
 float servoAngleFeedback;
 float servoAngularRateFeedback;
 float servoRateIntegral;
+float rotorDiskAngleFeedback;
 #define motorInertia 4e-5f
 float PitchTarget;
 // For miniBi
@@ -434,15 +435,13 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 
 #ifdef ROTORDISK_FEEDBACK
     // Mapping servo angle to motor pitch angle
-    // const float rotorDiskAngleFeedback = servoAngleFeedback * 1.891f + 2.689f;
-    // Mapping servo angle to motor pitch angle
-    const float rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
+    rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
+    position_msp.msg5 = rotorDiskAngleFeedback * 100.0f;
     // Enable rotor disk angle feedback, only in pitch axis for bicopter
     if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
         currentAngle += rotorDiskAngleFeedback;
 #endif
     const float errorAngle = angleTarget - currentAngle;
-    //position_msp.msg3 = rotorDiskAngleFeedback*100.0f;
     // 角度环=反馈+前馈  240730 jsl
     float angleRate = errorAngle * pidRuntime.angleGain; //+ angleFeedforward; 240728 jsl
     // if(axis == FD_PITCH)
@@ -998,9 +997,6 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             // get fixed wing mode YPR euler angle
             quaternionMultiply(quat_ang, quat_90pitch, quat_ang_fixedwing);
             quat2eulZYX(quat_ang_fixedwing, eulerYPR_fixedwing);
-            position_msp.msg1 = RADIANS_TO_DEGREES(eulerYPR_fixedwing[2])*100;
-            position_msp.msg2 = RADIANS_TO_DEGREES(eulerYPR_fixedwing[1])*100;
-            position_msp.msg3 = RADIANS_TO_DEGREES(eulerYPR_fixedwing[0])*100;
             // estimate airspeed
             const float airspeed = 5.0f;
             // calculate coordinate turn yaw setpoint (saturate input and output)
@@ -1010,7 +1006,6 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 currentPidSetpoint = RADIANS_TO_DEGREES(9.8f / airspeed * tanf(constrainf(eulerYPR_fixedwing[2], -RP_saturate, RP_saturate)) * cosf(eulerYPR_fixedwing[1]));
             else
                 currentPidSetpoint = 0;
-            position_msp.msg4 = currentPidSetpoint * 100;
         }
 #endif
 
@@ -1047,7 +1042,33 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         //    gyroRate += diskAngularRate;//lowPassFilterUpdate(servoAngularRateFeedback, pidRuntime.dT);
         // }
         // position_msp.msg4 = gyro.gyroADCf[FD_PITCH] * 100.0;
-        
+
+#ifdef ROTORDISK_FEEDBACK
+        // Rotate gyro feedback to rotor disk frame.
+        // Solve the control allocation problem in feedback instead of controller
+        // From a rotation matrix based on rotorDisk angle
+        position_msp.msg1 = gyro.gyroADCf[FD_ROLL] * 100.0f;
+        position_msp.msg3 = gyro.gyroADCf[FD_YAW] * 100.0f;
+        const float rotorDiskRadians = DEGREES_TO_RADIANS(rotorDiskAngleFeedback);
+        switch(axis) {
+            case FD_ROLL:{
+                gyroRate = cosf(rotorDiskRadians) * gyro.gyroADCf[FD_ROLL] - sinf(rotorDiskRadians) * gyro.gyroADCf[FD_YAW];
+                position_msp.msg2 = gyroRate * 100.0f;
+                break;
+            }
+            case FD_PITCH: {
+                gyroRate = gyro.gyroADCf[FD_PITCH];
+                break;
+            }
+            case FD_YAW: {
+                gyroRate = sinf(rotorDiskRadians) * gyro.gyroADCf[FD_ROLL] + cosf(rotorDiskRadians) * gyro.gyroADCf[FD_YAW];
+                position_msp.msg4 = gyroRate * 100.0f;
+                break;
+            }
+        }
+#endif
+
+
         float errorRate = currentPidSetpoint - gyroRate; // r - y
 #if defined(USE_ACC)
         handleCrashRecovery(
@@ -1194,6 +1215,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // 3.5 F控制（pidData.F out） 240730 jsl
         pidData[axis].F = feedforwardGain * pidSetpointDelta;
 #ifdef ROTORDISK_FEEDBACK
+        // Set the pitch forward
         if(axis == FD_PITCH){
             pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * 1000.0f / 90.0f;
         }
@@ -1259,7 +1281,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     float servoDesiredAngle = pidData[FD_PITCH].Sum*PID_SERVO_MIXER_SCALING/1000.0f*90.0f;
     estimateServoAngle(servoDesiredAngle, pidRuntime.dT);
     // JJJJJJJack & Jsl 20240910
-    // Estimate disk angular rate using diff + l`owpass
+    // Estimate disk angular rate using diff + lowpass
     estimateDiskAngularRate(servoDesiredAngle, pidRuntime.dT);
 #endif
     
@@ -1388,19 +1410,19 @@ float estimateServoAngle(float inputAngle, float DT)
     const float simServoRateKI = 0.008f;
     //const float simServoRateKD = 0.008f;
     // Calculate angle error
-    float servoAngleError = inputAngle - servoAngleFeedback;
+    const float servoAngleError = inputAngle - servoAngleFeedback;
     // Get desired angular rate via angle P
     float servoDesiredAngularRate = servoAngleError * simServoAngleKP;
     servoDesiredAngularRate = constrainf(servoDesiredAngularRate, -simServoMaxRate, simServoMaxRate);
     // Calculate angular rate error
-    float servoAngularRateError = servoDesiredAngularRate - servoAngularRateFeedback;
+    const float servoAngularRateError = servoDesiredAngularRate - servoAngularRateFeedback;
     // Angular rate PID
-    float servoTorqueP = servoAngularRateError * simServoRateKP;
+    const float servoTorqueP = servoAngularRateError * simServoRateKP;
     servoRateIntegral += servoAngularRateError;
-    float servoTorqueI = servoRateIntegral * simServoRateKI;
+    const float servoTorqueI = servoRateIntegral * simServoRateKI;
     //float servoTorqueD = -servoAngularRateFeedback/ * simServoRateKD;
-    float servoTorque = servoTorqueP + servoTorqueI;
-    float servoAngularAcc = servoTorque / motorInertia;
+    const float servoTorque = servoTorqueP + servoTorqueI;
+    const float servoAngularAcc = servoTorque / motorInertia;
     // Intergrating acc to rate and rate to angle
     servoAngularRateFeedback += servoAngularAcc * DT;
     servoAngleFeedback += servoAngularRateFeedback * DT;
