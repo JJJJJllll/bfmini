@@ -984,8 +984,8 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 
 #ifdef CONFIGURATION_TAILSITTER
         // Coordinate flight in rate mode for tailsitter fixed wing configuration
-        // Calculate currentPidSetpoint for yaw
-        if (axis == FD_ROLL){
+        // Calculate currentPidSetpoint for yaw (roll in vtol mode)
+        if (axis == FD_ROLL && !FLIGHT_MODE(ANGLE_MODE)){
             // get current attitude quaternion
             float quat_ang[4], quat_90pitch[4], eulerYPR_90Pitch[3], quat_ang_fixedwing[4], eulerYPR_fixedwing[3];
             quaternion q_ang = QUATERNION_INITIALIZE;
