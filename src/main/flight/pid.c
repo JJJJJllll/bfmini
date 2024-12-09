@@ -128,7 +128,7 @@ float servo2RotorDiskMap_K = 1.852;
 float servo2RotorDiskMap_B = 0.0;
 #else
 // For miniBi (servo driving motor directly)
-float servo2RotorDiskMap_K = 1.0;
+float servo2RotorDiskMap_K = 1;
 float servo2RotorDiskMap_B = 0.0;
 #endif
 
@@ -998,14 +998,14 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             quaternionMultiply(quat_ang, quat_90pitch, quat_ang_fixedwing);
             quat2eulZYX(quat_ang_fixedwing, eulerYPR_fixedwing);
             // estimate airspeed
-            const float airspeed = 5.0f;
+            const float airspeed = 2.0f;
             // calculate coordinate turn yaw setpoint (saturate input and output)
             // limit roll and pitch to +-60
-            float RP_saturate = M_PIf / 3;
-            if(ABS(eulerYPR_fixedwing[1]) < RP_saturate )
+            float RP_saturate = M_PIf / 7;
+            if(ABS(eulerYPR_fixedwing[1]) < RP_saturate ){
                 currentPidSetpoint = RADIANS_TO_DEGREES(9.8f / airspeed * tanf(constrainf(eulerYPR_fixedwing[2], -RP_saturate, RP_saturate)) * cosf(eulerYPR_fixedwing[1]));
-            else
-                currentPidSetpoint = 0;
+            }
+            position_msp.msg6 = currentPidSetpoint*100.0f;
         }
 #endif
 
@@ -1047,13 +1047,10 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // Rotate gyro feedback to rotor disk frame.
         // Solve the control allocation problem in feedback instead of controller
         // From a rotation matrix based on rotorDisk angle
-        position_msp.msg1 = gyro.gyroADCf[FD_ROLL] * 100.0f;
-        position_msp.msg3 = gyro.gyroADCf[FD_YAW] * 100.0f;
         const float rotorDiskRadians = DEGREES_TO_RADIANS(rotorDiskAngleFeedback);
         switch(axis) {
             case FD_ROLL:{
                 gyroRate = cosf(rotorDiskRadians) * gyro.gyroADCf[FD_ROLL] - sinf(rotorDiskRadians) * gyro.gyroADCf[FD_YAW];
-                position_msp.msg2 = gyroRate * 100.0f;
                 break;
             }
             case FD_PITCH: {
@@ -1062,7 +1059,6 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             }
             case FD_YAW: {
                 gyroRate = sinf(rotorDiskRadians) * gyro.gyroADCf[FD_ROLL] + cosf(rotorDiskRadians) * gyro.gyroADCf[FD_YAW];
-                position_msp.msg4 = gyroRate * 100.0f;
                 break;
             }
         }
@@ -1121,7 +1117,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef CONFIGURATION_TAILSITTER
         // limit roll(yaw for fixed wing) integral in coordinate flight
         if(!FLIGHT_MODE(ANGLE_MODE)){
-            pidData[FD_ROLL].I = constrainf(pidData[FD_ROLL].I, -50.0f, 50.0f);
+            pidData[FD_ROLL].I = constrainf(pidData[FD_ROLL].I, -100.0f, 100.0f)*0.5f;
         }
 #endif
         // -----calculate D component
