@@ -2555,6 +2555,19 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 
         break;
 
+    case MSP_SET_WP:
+        {
+            setWP_msp.msg1 = sbufReadU8(src);
+            setWP_msp.msg2 = sbufReadU8(src);
+            setWP_msp.msg3 = sbufReadU8(src);
+            setWP_msp.msg4 = sbufReadU8(src);
+            setWP_msp.msg5 = sbufReadU8(src);
+            setWP_msp.msg6 = sbufReadU8(src);
+            setWP_msp.msg7 = sbufReadU8(src);
+        }
+        sbufWriteU8(dst, true);
+        break;
+
     case MSP2_GET_TEXT:
         {
             // type byte, then length byte followed by the actual characters

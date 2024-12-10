@@ -1123,7 +1123,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // -----calculate D component
 
         float pidSetpointDelta = 0;
-
+        position_msp.msg1 = setWP_msp.msg1;
 #ifdef USE_FEEDFORWARD
         if (FLIGHT_MODE(ANGLE_MODE) && pidRuntime.axisInAngleMode[axis]) {
             // this axis is fully under self-levelling control
