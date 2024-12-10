@@ -62,7 +62,7 @@ typedef enum {
     SERVO_RUDDER = 5,
     SERVO_ELEVATOR = 6,
     SERVO_THROTTLE = 7, // for internal combustion (IC) planes
-#ifdef CONFIGURATION_TAILSITTER
+#ifdef FOLDABLE_WING
     SERVO_BICOPTER_SWINGBAT = 2,
     SERVO_BICOPTER_FOLDWING = 3,
 #endif

@@ -416,7 +416,7 @@ void writeServos(void)
 
 #ifdef USE_UNCOMMON_MIXERS
     case MIXER_BICOPTER:
-#ifdef CONFIGURATION_TAILSITTER
+#ifdef FOLDABLE_WING
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_SWINGBAT);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_FOLDWING);
 #endif
