@@ -74,7 +74,7 @@
 #define ROTORDISK_FEEDBACK
 #define CONFIGURATION_TAILSITTER
 #ifdef CONFIGURATION_TAILSITTER
-#define FOLDABLE_WING
+//#define FOLDABLE_WING
 #endif
 
 typedef enum {
