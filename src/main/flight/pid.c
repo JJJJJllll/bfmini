@@ -982,6 +982,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         }
 #endif
 
+/*
 #ifdef CONFIGURATION_TAILSITTER
         // Coordinate flight in rate mode for tailsitter fixed wing configuration
         // Calculate currentPidSetpoint for yaw (roll in vtol mode)
@@ -1008,6 +1009,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             position_msp.msg6 = currentPidSetpoint*100.0f;
         }
 #endif
+*/
 
 #ifdef USE_ACRO_TRAINER
         if ((axis != FD_YAW) && pidRuntime.acroTrainerActive && !pidRuntime.inCrashRecoveryMode && !launchControlActive) {
@@ -1117,7 +1119,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef CONFIGURATION_TAILSITTER
         // limit roll(yaw for fixed wing) integral in coordinate flight
         if(!FLIGHT_MODE(ANGLE_MODE)){
-            pidData[FD_ROLL].I = constrainf(pidData[FD_ROLL].I, -100.0f, 100.0f)*0.5f;
+            pidData[FD_ROLL].I = constrainf(pidData[FD_ROLL].I, -1.0f, 1.0f)*0.5f;
         }
 #endif
         // -----calculate D component
