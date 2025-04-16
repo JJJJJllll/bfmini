@@ -440,7 +440,9 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // Save the pitch target direct feedforward
     if(axis == FD_PITCH){
         PitchTarget = currentAngle - angleTarget;
+#ifdef CONFIGURATION_QUADTILT
         PitchTarget_rad = DEGREES_TO_RADIANS(PitchTarget);
+#endif
     }
 #endif
 
@@ -1231,7 +1233,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef ROTORDISK_FEEDBACK
         // Set the pitch forward
         if(axis == FD_PITCH){
-            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange / PID_SERVO_MIXER_SCALING;
+            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange;
         }
 #endif        
 #ifdef USE_YAW_SPIN_RECOVERY

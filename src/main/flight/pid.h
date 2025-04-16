@@ -79,7 +79,7 @@
 
 // Quad tilt is only enabled with rotor disk feedback
 #ifdef ROTORDISK_FEEDBACK
-#define CONFIGURATION_QUADTILT
+//#define CONFIGURATION_QUADTILT
 #ifdef CONFIGURATION_QUADTILT
 extern float PitchTarget_rad;
 extern float bodyPitchTarget;

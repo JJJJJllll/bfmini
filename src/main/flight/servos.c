@@ -503,7 +503,7 @@ void servoMixer(void)
 #ifdef CONFIGURATION_QUADTILT
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
         input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * sinf(PitchTarget_rad) * PID_SERVO_MIXER_SCALING;  
-        input[INPUT_STABILIZED_PITCH] = (pidData[FD_PITCH].Sum * sinf(PitchTarget_rad) + pidData[FD_PITCH].F) * PID_SERVO_MIXER_SCALING;
+        input[INPUT_STABILIZED_PITCH] = (pidData[FD_PITCH].Sum * sinf(PitchTarget_rad)) * PID_SERVO_MIXER_SCALING + pidData[FD_PITCH].F;
         input[INPUT_STABILIZED_YAW] = pidData[FD_YAW].Sum * cosf(PitchTarget_rad) * PID_SERVO_MIXER_SCALING;
 #else
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
