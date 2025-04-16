@@ -121,6 +121,10 @@ float servoRateIntegral;
 float rotorDiskAngleFeedback;
 #define motorInertia 6e-5f
 float PitchTarget;
+#ifdef CONFIGURATION_QUADTILT
+float PitchTarget_rad;
+float bodyPitchTarget;
+#endif
 float servo2RotorDiskMap_K = 1;
 float servo2RotorDiskMap_B = 0.0;
 #ifdef CONFIGURATION_TAILSITTER
@@ -434,8 +438,10 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 
 #ifdef ROTORDISK_FEEDBACK
     // Save the pitch target direct feedforward
-    if(axis == FD_PITCH)
+    if(axis == FD_PITCH){
         PitchTarget = currentAngle - angleTarget;
+        PitchTarget_rad = DEGREES_TO_RADIANS(PitchTarget);
+    }
 #endif
 
 #ifdef ROTORDISK_FEEDBACK
@@ -445,6 +451,11 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     // Enable rotor disk angle feedback, only in pitch axis for bicopter
     if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
         currentAngle += rotorDiskAngleFeedback;
+#endif
+
+#ifdef CONFIGURATION_QUADTILT
+    if(axis == FD_PITCH)
+        angleTarget = -bodyPitchTarget;
 #endif
     const float errorAngle = angleTarget - currentAngle;
     // 角度环=反馈+前馈  240730 jsl
@@ -1130,7 +1141,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // -----calculate D component
 
         float pidSetpointDelta = 0;
-        position_msp.msg1 = setWP_msp.msg1;
+        //position_msp.msg1 = setWP_msp.msg1;
 #ifdef USE_FEEDFORWARD
         if (FLIGHT_MODE(ANGLE_MODE) && pidRuntime.axisInAngleMode[axis]) {
             // this axis is fully under self-levelling control
@@ -1220,7 +1231,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef ROTORDISK_FEEDBACK
         // Set the pitch forward
         if(axis == FD_PITCH){
-            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange;
+            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange / PID_SERVO_MIXER_SCALING;
         }
 #endif        
 #ifdef USE_YAW_SPIN_RECOVERY
@@ -1266,8 +1277,13 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
             }
         }
 
+#ifdef CONFIGURATION_QUADTILT
+        // Do not pass in feedforward to SUM since it affects motor mix
+        const float pidSum = pidData[axis].P + pidData[axis].I + pidData[axis].D;
+#else
         // 3.6 calculating the PID sum (pidData.Sum out)
         const float pidSum = pidData[axis].P + pidData[axis].I + pidData[axis].D + pidData[axis].F;
+#endif
 #ifdef USE_INTEGRATED_YAW_CONTROL
         if (axis == FD_YAW && pidRuntime.useIntegratedYaw) {
             pidData[axis].Sum += pidSum * pidRuntime.dT * 100.0f;

@@ -168,6 +168,16 @@ static const servoMixer_t servoMixerBI[] = {
     { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_YAW,   -100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
 #endif
+#ifdef CONFIGURATION_QUADTILT
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_ROLL,           -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_ROLL,          -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT_REAR, INPUT_STABILIZED_YAW,       -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT_REAR, INPUT_STABILIZED_PITCH,     100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT_REAR, INPUT_STABILIZED_ROLL,      100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT_REAR, INPUT_STABILIZED_YAW,      -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT_REAR, INPUT_STABILIZED_PITCH,    -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT_REAR, INPUT_STABILIZED_ROLL,     100, 0, 0, 100, 0 },
+#endif
 };
 
 static const servoMixer_t servoMixerDual[] = {
@@ -426,6 +436,10 @@ void writeServos(void)
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT_ELEVON);
         writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT_ELEVON);
 #endif
+#ifdef CONFIGURATION_QUADTILT
+        writeServoWithTracking(servoIndex++, SERVO_BICOPTER_LEFT_REAR);
+        writeServoWithTracking(servoIndex++, SERVO_BICOPTER_RIGHT_REAR);
+#endif
         // 3. 最终写入双旋翼舵机角度指令 servo last 240730 jsl
         break;
 
@@ -486,10 +500,17 @@ void servoMixer(void)
         input[INPUT_STABILIZED_PITCH] = rcCommand[PITCH];
         input[INPUT_STABILIZED_YAW] = rcCommand[YAW];
     } else {
+#ifdef CONFIGURATION_QUADTILT
+        // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
+        input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * sinf(PitchTarget_rad) * PID_SERVO_MIXER_SCALING;  
+        input[INPUT_STABILIZED_PITCH] = (pidData[FD_PITCH].Sum * sinf(PitchTarget_rad) + pidData[FD_PITCH].F) * PID_SERVO_MIXER_SCALING;
+        input[INPUT_STABILIZED_YAW] = pidData[FD_YAW].Sum * cosf(PitchTarget_rad) * PID_SERVO_MIXER_SCALING;
+#else
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
         input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * PID_SERVO_MIXER_SCALING;
         input[INPUT_STABILIZED_PITCH] = pidData[FD_PITCH].Sum * PID_SERVO_MIXER_SCALING;
         input[INPUT_STABILIZED_YAW] = pidData[FD_YAW].Sum * PID_SERVO_MIXER_SCALING;
+#endif
         /* 1. 求舵机输入（pidData.Sum in -> scale -> input source out)
            变量：input source共14个，其中RPY3个来自pidData.Sum（角速度环输出）、双旋翼只用PY两个
            问题：舵机最大角度是angleLimit/2、设为180才能达到90度

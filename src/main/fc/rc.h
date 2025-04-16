@@ -23,6 +23,7 @@
 #include "drivers/time.h"
 
 #include "fc/rc_controls.h"
+#include "flight/position.h"
 
 #ifdef USE_RC_SMOOTHING_FILTER
 #define RC_SMOOTHING_AUTO_FACTOR_MIN 0

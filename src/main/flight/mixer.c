@@ -692,10 +692,17 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
     float motorMix[MAX_SUPPORTED_MOTORS];
     float motorMixMax = 0, motorMixMin = 0;
     for (int i = 0; i < mixerRuntime.motorCount; i++) {
+#ifdef CONFIGURATION_QUADTILT
+        float mix =
+            scaledAxisPidRoll  * activeMixer[i].roll * cosf(PitchTarget_rad) +
+            scaledAxisPidPitch * activeMixer[i].pitch * cosf(PitchTarget_rad) +
+            scaledAxisPidYaw   * activeMixer[i].yaw;
+#else
         float mix =
             scaledAxisPidRoll  * activeMixer[i].roll +
             scaledAxisPidPitch * activeMixer[i].pitch +
             scaledAxisPidYaw   * activeMixer[i].yaw;
+#endif
         /*if(mixerConfig()->mixerMode == MIXER_BICOPTER){
             // Motor mix for pitch for bicopter
             // Turn it off for tailsitters takeoff flat

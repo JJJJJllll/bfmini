@@ -769,6 +769,10 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
         rcCommand[ROLL] = -tempSwitch;
     }
 #endif
+#ifdef CONFIGURATION_QUADTILT
+    bodyPitchTarget = (rcData[AUX6]-1100)/839.0f*90.0f;
+
+#endif
 }
 
 void resetYawAxis(void)

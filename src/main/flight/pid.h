@@ -77,6 +77,16 @@
 #define FOLDABLE_WING
 #endif
 
+// Quad tilt is only enabled with rotor disk feedback
+#ifdef ROTORDISK_FEEDBACK
+#define CONFIGURATION_QUADTILT
+#ifdef CONFIGURATION_QUADTILT
+extern float PitchTarget_rad;
+extern float bodyPitchTarget;
+#endif
+#endif
+
+// For twin bicopters docking
 //#define BI_DOCK
 
 typedef enum {

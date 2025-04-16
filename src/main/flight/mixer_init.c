@@ -91,8 +91,15 @@ static const motorMixer_t mixerQuadP[] = {
 
 #if defined(USE_UNCOMMON_MIXERS)
 static const motorMixer_t mixerBicopter[] = {
+#ifdef CONFIGURATION_QUADTILT
+    { 1.0f, -1.0f,  1.0f, -1.0f },          // REAR_R
+    { 1.0f, -1.0f, -1.0f,  1.0f },          // FRONT_R
+    { 1.0f,  1.0f,  1.0f,  1.0f },          // REAR_L
+    { 1.0f,  1.0f, -1.0f, -1.0f },          // FRONT_L
+#else
     { 1.0f,  1.0f,  0.0f,  0.0f },          // LEFT
     { 1.0f, -1.0f,  0.0f,  0.0f },          // RIGHT
+#endif
 };
 #else
 #define mixerBicopter NULL
@@ -245,7 +252,11 @@ const mixer_t mixers[] = {
     { 3, true,  mixerTricopter },      // MIXER_TRI
     { 4, false, mixerQuadP },          // MIXER_QUADP
     { 4, false, mixerQuadX },          // MIXER_QUADX
+#ifdef CONFIGURATION_QUADTILT
+    { 4, true,  mixerBicopter },       // MIXER_BICOPTER
+#else
     { 2, true,  mixerBicopter },       // MIXER_BICOPTER
+#endif
     { 0, true,  NULL },                // * MIXER_GIMBAL
     { 6, false, mixerY6 },             // MIXER_Y6
     { 6, false, mixerHex6P },          // MIXER_HEX6
