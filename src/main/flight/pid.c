@@ -119,17 +119,22 @@ float servoAngleFeedback;
 float servoAngularRateFeedback;
 float servoRateIntegral;
 float rotorDiskAngleFeedback;
-#define motorInertia 4e-5f
+#define motorInertia 6e-5f
 float PitchTarget;
-// For miniBi
-#ifdef CONFIGURATION_TAILSITTER
-// For tailsitter (with linkage)
-float servo2RotorDiskMap_K = 1.852;
-float servo2RotorDiskMap_B = 0.0;
-#else
-// For miniBi (servo driving motor directly)
 float servo2RotorDiskMap_K = 1;
 float servo2RotorDiskMap_B = 0.0;
+#ifdef CONFIGURATION_TAILSITTER
+// For tailsitter (with linkage)
+float servoPWMRange = 1000.0f;
+float servoAngleRange = 180.0f;
+#elif defined BI_DOCK
+// For bicopter docking (servo driving motor directly) 270 deg servo
+float servoPWMRange = 1000.0f;
+float servoAngleRange = 270.0f;
+#else
+// For miniBi (servo driving motor directly)
+float servoPWMRange = 2000.0f;
+float servoAngleRange = 180.0f;
 #endif
 
 // JJJJJJJack& Jsl 20240910 sim a lowpass filter
@@ -1215,7 +1220,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef ROTORDISK_FEEDBACK
         // Set the pitch forward
         if(axis == FD_PITCH){
-            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * 1000.0f / 90.0f;
+            pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange;
         }
 #endif        
 #ifdef USE_YAW_SPIN_RECOVERY
@@ -1276,7 +1281,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #ifdef ROTORDISK_FEEDBACK
     // JJJJJJJack 20240822
     // Estimate servo output
-    float servoDesiredAngle = pidData[FD_PITCH].Sum*PID_SERVO_MIXER_SCALING/1000.0f*90.0f;
+    float servoDesiredAngle = pidData[FD_PITCH].Sum*PID_SERVO_MIXER_SCALING/servoPWMRange*servoAngleRange;
     estimateServoAngle(servoDesiredAngle, pidRuntime.dT);
     // JJJJJJJack & Jsl 20240910
     // Estimate disk angular rate using diff + lowpass
@@ -1403,7 +1408,7 @@ float estimateServoAngle(float inputAngle, float DT)
 {
     // Define Parameters
     const float simServoAngleKP = 60.0f;
-    const float simServoMaxRate = 1400.0f;
+    const float simServoMaxRate = 500.0f;
     const float simServoRateKP = 0.008f;
     const float simServoRateKI = 0.008f;
     //const float simServoRateKD = 0.008f;
