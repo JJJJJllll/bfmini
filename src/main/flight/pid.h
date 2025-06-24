@@ -70,6 +70,9 @@
 
 #define TPA_MAX 100
 
+// USE Quaternion control
+#define QUATERNION_CONTROL
+
 // JJJJJJJack MACRO for rotor disk feedback
 #define ROTORDISK_FEEDBACK
 //#define CONFIGURATION_TAILSITTER
@@ -507,12 +510,22 @@ float lowPassFilterUpdate(float input, float DT); // 20240910 lowpass
 void estimateDiskAngularRate(float servoDesiredAngle, float DT); // 20240910 diff + lowpass
 #endif
 
-#ifdef CONFIGURATION_TAILSITTER
+
+#ifdef QUATERNION_CONTROL
+float sign(float x);
+float conv2std(float input_angle);
+void calc_psi_des(float psi_sp_diff, float psi_current,  bool armed, bool  armed_prev, float * psi_des);
 void eul2quatZYX(float eulerAngle[3], float * quaternion);
 void quat2eulZYX(float quaternion[4], float * eulerAngle);
+void eul2quatZXY(float eulerAngle[3], float * quaternion);
+void quat2eulZXY(float quaternion[4], float * eulerAngle);
 float quaternionNorm(float quat[4]);
 void quaternionNormalize(float quat[4], float * result);
 void quaternionMultiply(float q1[4], float q2[4], float * result);
 void quaternionConjugate(float quaternion[4], float * result);
 void quaternionInverse(float quaternion[4], float * result);
+void quaternionToAxisAngle(float quaternion[4], float * axisAngle);
+#include "sensors/acceleration.h"
+void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAndPitchTrims_t *angleTrim);
 #endif
+//

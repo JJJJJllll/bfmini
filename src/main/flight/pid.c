@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <float.h> //20250424 for FLT_EPSILON in quat2eulZXY
 
 #include "platform.h"
 
@@ -79,6 +80,12 @@ const char pidNames[] =
 FAST_DATA_ZERO_INIT uint32_t targetPidLooptime;
 FAST_DATA_ZERO_INIT pidAxisData_t pidData[XYZ_AXIS_COUNT];
 FAST_DATA_ZERO_INIT pidRuntime_t pidRuntime;
+
+#ifdef QUATERNION_CONTROL
+    float angularRateDesired[XYZ_AXIS_COUNT];
+    float Yaw_desire;
+    bool arming_state=false, previous_arming_state=false;
+#endif
 
 #if defined(USE_ABSOLUTE_CONTROL)
 STATIC_UNIT_TESTED FAST_DATA_ZERO_INIT float axisError[XYZ_AXIS_COUNT];
@@ -511,8 +518,112 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     }
 
     DEBUG_SET(DEBUG_CURRENT_ANGLE, axis, lrintf(currentAngle * 10.0f)); // current angle
+
+    
+    #ifdef QUATERNION_CONTROL
+        return angularRateDesired[axis];
+    #endif
+
     return currentPidSetpoint;
 }
+
+// Quaternion control added by JJJJJJJack
+// Date created: 12/10/2022
+#ifdef QUATERNION_CONTROL
+void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAndPitchTrims_t *angleTrim){
+    float quat_des[4], quat_ang[4], quat_ang_inv[4], quat_diff[4], axisAngle[4];
+    float eulerAngleYRP[3], temp[4];
+    quaternion q_ang = QUATERNION_INITIALIZE;
+    arming_state = ARMING_FLAG(ARMED);
+    calc_psi_des(getRcDeflection(FD_YAW), DEGREES_TO_RADIANS(-attitude.raw[2]/10.0f), arming_state, previous_arming_state, &Yaw_desire);
+    previous_arming_state = arming_state;
+    /*
+    eulerAngleYPR[0] = conv2std(Yaw_desire);
+    eulerAngleYPR[1] = (pidProfile->levelAngleLimit * getRcDeflection(FD_PITCH))/57.3f;
+    eulerAngleYPR[2] = (pidProfile->levelAngleLimit * getRcDeflection(FD_ROLL))/57.3f;
+    */
+   
+    eulerAngleYRP[0] = conv2std(Yaw_desire);
+    eulerAngleYRP[1] = (pidProfile->angle_limit * getRcDeflection(FD_ROLL))/57.3f; //levelAngleLimit -> angle_limit 
+    eulerAngleYRP[2] = (pidProfile->angle_limit * getRcDeflection(FD_PITCH))/57.3f; // 55 -> 60, may be official update
+    
+    float currentPitch = (attitude.raw[FD_PITCH] - angleTrim->raw[FD_PITCH]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+    float joystickPitchTarget = RADIANS_TO_DEGREES(eulerAngleYRP[2]);
+    #ifdef ROTORDISK_FEEDBACK
+    // Save the pitch target direct feedforward
+    PitchTarget = currentPitch - joystickPitchTarget;
+    #ifdef CONFIGURATION_QUADTILT
+    PitchTarget_rad = DEGREES_TO_RADIANS(PitchTarget);
+    #endif
+    #endif
+
+
+
+    #ifdef CONFIGURATION_QUADTILT
+    eulerAngleYRP[2] = DEGREES_TO_RADIANS(-bodyPitchTarget);
+    #endif
+    //eulerAngleYPR[2] = attitudeUpright() ? eulerAngleYPR[2] : 0 - eulerAngleYPR[2];
+    //eul2quatZYX(eulerAngleYPR, quat_des_RC);
+
+    //eul2quatZYX(eulerAngleYPR, quat_des);
+    eul2quatZXY(eulerAngleYRP, quat_des);   //20250424 ZXY 
+    
+    quaternionNormalize(quat_des, quat_des);
+    getQuaternion(&q_ang);
+    quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
+
+    #ifdef ROTORDISK_FEEDBACK
+        // Mapping servo angle to motor pitch angle
+        rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
+        float rotorDiskAngleFeedback_Rad = DEGREES_TO_RADIANS(rotorDiskAngleFeedback); 
+        // position_msp.msg5 = rotorDiskAngleFeedback * 100.0f;
+        // Enable rotor disk angle feedback, only in pitch axis for bicopter
+        if(mixerConfig()->mixerMode == MIXER_BICOPTER) {
+            // Get rotor disk quaternion from body quaternion and tilt angle
+            float q_disk_tilt[4] = {cos(0.5f*rotorDiskAngleFeedback_Rad), 0, sin(0.5f*rotorDiskAngleFeedback_Rad), 0};
+            quaternionMultiply(quat_ang, q_disk_tilt, temp);
+            memcpy(quat_ang, temp, sizeof(temp) );
+            //q_ang = q_ang * q_disk_tilt;
+        }
+    #endif
+    
+
+    // Logging quaternion through blackbox debug
+    // Date created 05/17/2023
+    debug[0] = q_ang.w*1e4f;
+    debug[1] = q_ang.x*1e4f;
+    debug[2] = q_ang.y*1e4f;
+    debug[3] = q_ang.z*1e4f;
+    //position_msp.msg3 = quat_des[0]*100.0f;
+    //position_msp.msg4 = quat_des[1]*100.0f;
+    //position_msp.msg5 = quat_des[2]*100.0f;
+    //position_msp.msg6 = quat_des[3]*100.0f;
+    //position_msp.msg3 = q_ang.w*100.0f;
+    //position_msp.msg4 = q_ang.x*100.0f;
+    //position_msp.msg5 = q_ang.y*100.0f;
+    //position_msp.msg6 = q_ang.z*100.0f;
+
+    quaternionInverse(quat_ang, quat_ang_inv);
+    quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
+
+    // Get body quaternion from rotor disk quaternion, inverse rotation, 20250528 lwj
+    float q_disk_tilt_inverse[4] = {cos(-0.5f*rotorDiskAngleFeedback_Rad), 0, sin(-0.5f*rotorDiskAngleFeedback_Rad), 0};
+    quaternionMultiply(quat_diff, q_disk_tilt_inverse, temp);
+    memcpy(quat_diff, temp, sizeof(temp));
+
+    quaternionToAxisAngle(quat_diff, axisAngle);
+
+
+    angularRateDesired[FD_ROLL] = RADIANS_TO_DEGREES(axisAngle[0] * axisAngle[3])* pidRuntime.angleGain;
+
+    angularRateDesired[FD_PITCH] = RADIANS_TO_DEGREES(axisAngle[1] * axisAngle[3]) * pidRuntime.angleGain;
+
+    //Reduce the yaw gain for bicopter
+    angularRateDesired[FD_YAW] = RADIANS_TO_DEGREES(axisAngle[2] * axisAngle[3]) * 1.2f;
+
+}
+#endif
+
 
 static FAST_CODE_NOINLINE void handleCrashRecovery(
     const pidCrashRecovery_e crash_recovery, const rollAndPitchTrims_t *angleTrim,
@@ -964,6 +1075,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     rpmFilterUpdate();
 #endif
 
+
+    
+    #ifdef QUATERNION_CONTROL
+    angularRateFromQuaternionError(pidProfile, angleTrim);
+    #endif
+    //
     // ----------PID controller----------
     for (int axis = FD_ROLL; axis <= FD_YAW; ++axis) { // 超大循环905-1155，把角度、角速度都算完 240730 jsl
         // 1. 接收RC指令（currentPidSetpoint out） 240730 jsl
@@ -1234,6 +1351,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // Set the pitch forward
         if(axis == FD_PITCH){
             pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange;
+            position_msp.msg1 = pidData[axis].F * 100.0f;
         }
 #endif        
 #ifdef USE_YAW_SPIN_RECOVERY
@@ -1471,7 +1589,54 @@ void estimateDiskAngularRate(float servoDesiredAngle, float DT){
 }
 #endif
 
-#ifdef CONFIGURATION_TAILSITTER
+#ifdef QUATERNION_CONTROL
+
+float sign(float x)
+{
+  return x > 0 ? 1 : -1;
+}
+
+// Wrap angle in radians to [-pi pi]
+float conv2std(float input_angle)
+{
+    while(input_angle < 0)
+        input_angle += 2*M_PI;
+    input_angle += M_PI;
+    input_angle = fmod(input_angle, 2*M_PI);
+    input_angle -= M_PI;
+    return input_angle;
+}
+
+// Integration of psi stick input to the desired psi
+// Input:
+//     psi_sp_diff: Stick input
+//     psi_current: Current yaw
+//     armed: Current arm state
+//     armed_prev: Last arm state
+// Output:
+//     psi_des: Pointer to the desired psi
+void calc_psi_des(float psi_sp_diff, float psi_current,  bool armed, bool  armed_prev, float * psi_des)
+{
+  float psi = psi_current;
+  
+  if(!armed)
+    *psi_des = psi + psi_sp_diff;
+
+  if((armed_prev != armed) && armed) {
+    /*  if ARMed */
+    *psi_des = psi;
+    #ifdef INVERTED_FLIGHT
+    if(!attitudeUpright())
+        *psi_des = conv2std(*psi_des + M_PI);
+    #endif
+  }
+  
+  if (fabsf(psi_sp_diff) >= 0.01){
+    /*  if rudder stick is at not at center, then change psi_sp. Else do not modify psi_sp */
+    //float psi_integral = psi + psi_sp_diff;
+    *psi_des += psi_sp_diff*0.005f;
+  }
+}
 
 void eul2quatZYX(float eulerAngle[3], float * quaternion)
 {
@@ -1510,6 +1675,56 @@ void quat2eulZYX(float quaternion[4], float * eulerAngle)
     eulerAngle[0] = atan2f(siny_cosp, cosy_cosp);
 
 }
+//20250423, rotation in ZXY order
+//------------------- ZXY ----------------------------
+void eul2quatZXY(float eulerAngle[3], float * quaternion) {
+    // ZXY顺序：绕Z轴(yaw) -> 绕X轴(roll) -> 绕Y轴(pitch)
+    float yaw = eulerAngle[0];    // Z轴旋转角（单位：弧度）
+    float roll = eulerAngle[1];   // X轴旋转角（单位：弧度）
+    float pitch = eulerAngle[2];  // Y轴旋转角（单位：弧度）
+
+    float cy = cos(yaw * 0.5f);
+    float sy = sin(yaw * 0.5f);
+    float cr = cos(roll * 0.5f);
+    float sr = sin(roll * 0.5f);
+    float cp = cos(pitch * 0.5f);
+    float sp = sin(pitch * 0.5f);
+
+    // 四元数乘法顺序：q_z * q_x * q_y
+    quaternion[0] = cy * cr * cp - sy * sr * sp; // w
+    quaternion[1] = cy * sr * cp - sy * cr * sp; // x
+    quaternion[2] = cy * cr * sp + sy * sr * cp; // y
+    quaternion[3] = cy * sr * sp + sy * cr * cp; // z
+}
+
+void quat2eulZXY(float quaternion[4], float * eulerAngle) {
+    float qw = quaternion[0];
+    float qx = quaternion[1];
+    float qy = quaternion[2];
+    float qz = quaternion[3];
+
+    float tmp = 2 * (qw * qx + qy * qz);
+    // 截断到[-1, 1]范围
+    if (tmp > 1.0f) tmp = 1.0f;
+    else if (tmp < -1.0f) tmp = -1.0f;
+
+    eulerAngle[1] = asinf(tmp); // Roll ∈ [-π/2, π/2]
+    float tolA = 0.5f * M_PIf - 10 * FLT_EPSILON;
+    float tolB = -0.5f * M_PIf + 10 * FLT_EPSILON;
+    if (eulerAngle[1] >= tolA){
+        eulerAngle[0] = 2 * atan2f(qy, qw);
+        eulerAngle[2] = 0.0f;
+    }
+    else if (eulerAngle[1] <= tolB){
+        eulerAngle[0] = -2 * atan2f(qy, qw);
+        eulerAngle[2] = 0.0f;
+    }
+    else{
+        eulerAngle[0] = atan2f((2 * qw * qz - 2 * qx * qy ), (2 * sqrtf(qw) + 2 * sqrtf(qy) - 1) );
+        eulerAngle[2] = atan2f((2 * qw * qy - 2 * qx * qz ), (2 * sqrtf(qw) + 2 * sqrtf(qz) - 1) );
+    }
+}
+//------------------------------------------------------
 
 float quaternionNorm(float quat[4])
 {
@@ -1551,6 +1766,33 @@ void quaternionInverse(float quaternion[4], float * result)
     result[2] = quaternion_conjugate[2] / quaternion_norm;
     result[3] = quaternion_conjugate[3] / quaternion_norm;
     //qinv  = quatconj( q )./(quatnorm( q )*ones(1,4));
+}
+
+void quaternionToAxisAngle(float quaternion[4], float * axisAngle)
+{
+    //Normalize the quaternions
+    float quat_norm[4];
+    quaternionNormalize(quaternion, quat_norm);
+
+    //Normalize and generate the rotation vector and angle sequence
+    //For a single quaternion q = [w x y z], the formulas are as follows:
+    //(axis) v = [x y z] / norm([x y z]);
+    //(angle) theta = 2 * acos(w)
+    float axis[3], axis_norm, angle;
+    axis_norm = sqrtf(quat_norm[1]*quat_norm[1] + quat_norm[2]*quat_norm[2] + quat_norm[3]*quat_norm[3]);
+    if(axis_norm != 0){
+        axis[0] = quat_norm[1] / axis_norm;
+        axis[1] = quat_norm[2] / axis_norm;
+        axis[2] = quat_norm[3] / axis_norm;
+    }else{
+        axis[0] = 0; axis[1] = 0; axis[2] = 1;
+    }
+    angle = conv2std(2.0f*acosf(quat_norm[0]));
+
+    axisAngle[0] = axis[0];
+    axisAngle[1] = axis[1];
+    axisAngle[2] = axis[2];
+    axisAngle[3] = angle;
 }
 
 #endif
