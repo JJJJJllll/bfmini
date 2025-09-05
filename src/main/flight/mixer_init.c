@@ -46,6 +46,7 @@
 #include "sensors/battery.h"
 
 #include "mixer_init.h"
+#include "flight/pid.h"
 
 PG_REGISTER_WITH_RESET_FN(mixerConfig_t, mixerConfig, PG_MIXER_CONFIG, 1);
 

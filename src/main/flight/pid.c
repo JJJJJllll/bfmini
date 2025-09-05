@@ -532,7 +532,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #ifdef QUATERNION_CONTROL
 void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAndPitchTrims_t *angleTrim){
     float quat_des[4], quat_ang[4], quat_ang_inv[4], quat_diff[4], axisAngle[4];
-    float eulerAngleYRP[3], temp[4];
+    float eulerAngleYRP[3];
     quaternion q_ang = QUATERNION_INITIALIZE;
     arming_state = ARMING_FLAG(ARMED);
     calc_psi_des(getRcDeflection(FD_YAW), DEGREES_TO_RADIANS(-attitude.raw[2]/10.0f), arming_state, previous_arming_state, &Yaw_desire);
@@ -547,9 +547,9 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAn
     eulerAngleYRP[1] = (pidProfile->angle_limit * getRcDeflection(FD_ROLL))/57.3f; //levelAngleLimit -> angle_limit 
     eulerAngleYRP[2] = (pidProfile->angle_limit * getRcDeflection(FD_PITCH))/57.3f; // 55 -> 60, may be official update
     
+    #ifdef ROTORDISK_FEEDBACK
     float currentPitch = (attitude.raw[FD_PITCH] - angleTrim->raw[FD_PITCH]) / 10.0f; // stepped at 500hz with some 4ms flat spots
     float joystickPitchTarget = RADIANS_TO_DEGREES(eulerAngleYRP[2]);
-    #ifdef ROTORDISK_FEEDBACK
     // Save the pitch target direct feedforward
     PitchTarget = currentPitch - joystickPitchTarget;
     #ifdef CONFIGURATION_QUADTILT
@@ -573,6 +573,7 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAn
     quat_ang[0] = q_ang.w; quat_ang[1] = q_ang.x; quat_ang[2] = q_ang.y; quat_ang[3] = q_ang.z;
 
     #ifdef ROTORDISK_FEEDBACK
+        float temp[4];
         // Mapping servo angle to motor pitch angle
         rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
         float rotorDiskAngleFeedback_Rad = DEGREES_TO_RADIANS(rotorDiskAngleFeedback); 
@@ -590,7 +591,7 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAn
 
     // Logging quaternion through blackbox debug
     // Date created 05/17/2023
-    debug[0] = q_ang.w*1e4f;
+    debug[0] = q_ang.w*1e4f + angleTrim->raw[FD_PITCH]*0;
     debug[1] = q_ang.x*1e4f;
     debug[2] = q_ang.y*1e4f;
     debug[3] = q_ang.z*1e4f;
@@ -606,10 +607,12 @@ void angularRateFromQuaternionError(const pidProfile_t *pidProfile, const rollAn
     quaternionInverse(quat_ang, quat_ang_inv);
     quaternionMultiply(quat_ang_inv, quat_des, quat_diff);
 
+    #ifdef ROTORDISK_FEEDBACK
     // Get body quaternion from rotor disk quaternion, inverse rotation, 20250528 lwj
     float q_disk_tilt_inverse[4] = {cos(-0.5f*rotorDiskAngleFeedback_Rad), 0, sin(-0.5f*rotorDiskAngleFeedback_Rad), 0};
     quaternionMultiply(quat_diff, q_disk_tilt_inverse, temp);
     memcpy(quat_diff, temp, sizeof(temp));
+    #endif
 
     quaternionToAxisAngle(quat_diff, axisAngle);
 
