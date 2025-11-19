@@ -71,7 +71,7 @@
 #define TPA_MAX 100
 
 // USE Quaternion control
-#define QUATERNION_CONTROL
+// #define QUATERNION_CONTROL
 
 // JJJJJJJack MACRO for rotor disk feedback
 #define ROTORDISK_FEEDBACK
