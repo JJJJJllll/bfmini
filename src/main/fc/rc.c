@@ -773,6 +773,12 @@ FAST_CODE_NOINLINE void updateRcCommands(void)
     bodyPitchTarget = (rcData[AUX6]-1100)/839.0f*90.0f;
 
 #endif
+
+#ifdef NARROWGAP_AUXIN
+    AUXIN_ROLLRATE = (rcData[AUX1]-rxConfig()->midrc)/500.0f*500.0f;
+    AUXIN_PITCHRATE = (rcData[AUX2]-rxConfig()->midrc)/500.0f*500.0f;
+    AUXIN_YAWRATE = (rcData[AUX3]-rxConfig()->midrc)/500.0f*500.0f;
+#endif
 }
 
 void resetYawAxis(void)

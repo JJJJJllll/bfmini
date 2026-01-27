@@ -80,14 +80,21 @@
 #define FOLDABLE_WING
 #endif
 
-// Quad tilt is only enabled with rotor disk feedback
 #ifdef ROTORDISK_FEEDBACK
+// Quad tilt is only enabled with rotor disk feedback
 //#define CONFIGURATION_QUADTILT
 #ifdef CONFIGURATION_QUADTILT
 extern float PitchTarget_rad;
 extern float bodyPitchTarget;
 #endif
+// Bicopter through narrow gap is only enabled with rotor disk feedback
+#define NARROWGAP_AUXIN
+#ifdef NARROWGAP_AUXIN
+extern float AUXIN_ROLLRATE;
+extern float AUXIN_PITCHRATE;
+extern float AUXIN_YAWRATE;
 #endif
+#endif // end rotordisk feedback
 
 // For twin bicopters docking
 //#define BI_DOCK
