@@ -264,6 +264,9 @@ void pidInit(const pidProfile_t *pidProfile)
     pidSetTargetLooptime(gyro.targetLooptime); // Initialize pid looptime
     pidInitFilters(pidProfile);
     pidInitConfig(pidProfile);
+    #ifdef MODULAR_PSEUDO_INVERSE
+    servoRotorMixerInit();
+    #endif
 #ifdef USE_RPM_FILTER
     rpmFilterInit(rpmFilterConfig(), gyro.targetLooptime);
 #endif

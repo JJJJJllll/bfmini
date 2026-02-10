@@ -154,6 +154,181 @@ float servoLastDesiredAngle = 0.0;
 float diskDiffRate = 0.0, diskAngularRate = 0.0;
 #endif
 
+// JJJJJJJack Modular copter
+#ifdef MODULAR_PSEUDO_INVERSE
+// ---------------- 计算缓存（无需存储，仅运行时） ----------------
+float J_pinv[2][3];        // 预计算的伪逆矩阵（init阶段生成）
+// PG注册（实现Flash存储）
+PG_REGISTER_WITH_RESET_TEMPLATE(ServoRotorMixer_t, servoRotorMixer, 
+                                PG_SERVO_ROTOR_MIXER, SERVO_ROTOR_MIXER_VER);
+
+// 参数默认值（上电未配置时用）
+PG_RESET_TEMPLATE(ServoRotorMixer_t, servoRotorMixer,
+    // 所有坐标定义为NED
+    // 硬件参数默认值（适配常规多旋翼）
+    .LiftCenter = {0, 0, 100},        // 转动中心在重心上方0.1m
+    .RotationAxis = {1000, 0, 0},      // X轴为旋转轴
+    .t0 = {0, 0, -1000},                // 初始推力沿负Z轴向上
+    .T_eq = 7000,                            // 平衡点推力7N
+    .theta_eq = 0,                        // 平衡点倾角0弧度
+    .prop_rot_dir = 1,                    // CCW=1
+    .tau_scaler = {100, 100, 100},           // 比例系数默认100（1倍）
+);
+
+// // 全局Mixer实例 参考pidConfig，不需要定义该变量，pgDeclair宏会生成并定义它
+// ServoRotorMixer_t servoRotorMixer;
+
+// ------------------- 辅助向量运算函数（对应Matlab的向量操作） -------------------
+// 向量叉乘：res = a × b
+void vectorCross(const float a[3], const float b[3], float res[3]) {
+    res[0] = a[1] * b[2] - a[2] * b[1];
+    res[1] = a[2] * b[0] - a[0] * b[2];
+    res[2] = a[0] * b[1] - a[1] * b[0];
+}
+
+// 向量点乘：return a · b
+float vectorDot(const float a[3], const float b[3]) {
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+// 向量范数：return ||a||
+float NormOfVector(const float a[3]) {
+    return sqrtf(vectorDot(a, a));
+}
+
+// 向量单位化：v = v / ||v||（若范数过小则报错）
+void NormalizeVector(float v[3]) {
+    float norm = NormOfVector(v);
+    if (norm < 1e-6f) {
+        // BF中可替换为日志打印/断言，此处简化
+        return;
+    }
+    v[0] /= norm;
+    v[1] /= norm;
+    v[2] /= norm;
+}
+
+// ------------------- 初始化函数：预计算J矩阵和J_pinv -------------------
+void servoRotorMixerInit(void) {
+    // ServoRotorMixer_t mixer = &servoRotorMixer;
+    float t_eq[3];          // θ_eq下的推力方向
+    float J[3][2];          // 3×2控制分配矩阵
+    float JtJ[2][2];        // J^T * J (2×2)
+    float Jt[2][3];         // J的转置 (2×3)
+    float invJtJ[2][2];     // (J^T J + λI2) 的逆
+    float temp[2][3];       // 临时矩阵，用于计算J_pinv = inv(JtJ) * Jt
+
+    // ---------------- 1. 预处理：参数单位化 + 合法性校验 ----------------
+    // 转轴方向单位化
+    float RotationAxis[3] = {(float)servoRotorMixer()->RotationAxis[0]/1000.0f, (float)servoRotorMixer()->RotationAxis[1]/1000.0f, (float)servoRotorMixer()->RotationAxis[2]/1000.0f};
+    NormalizeVector(RotationAxis);
+    // 推力中心单位化
+    float LiftCenter[3] = {(float)servoRotorMixer()->LiftCenter[0]/1000.0f, (float)servoRotorMixer()->LiftCenter[1]/1000.0f, (float)servoRotorMixer()->LiftCenter[2]/1000.0f};
+    NormalizeVector(LiftCenter);
+    // 初始推力方向单位化
+    float t0[3] = {(float)servoRotorMixer()->t0[0]/1000.0f, (float)servoRotorMixer()->t0[1]/1000.0f, (float)servoRotorMixer()->t0[2]/1000.0f};
+    NormalizeVector(t0);
+    // 平衡点推力非负
+    float T_eq = (servoRotorMixer()->T_eq < 0.0f) ? 0.0f : (float)servoRotorMixer()->T_eq/1000.0f;
+    // 平衡点倾转角单位化
+    float theta_eq = (float)servoRotorMixer()->theta_eq/1000.0f;
+
+    // ---------------- 2. 计算θ_eq下的推力方向t_eq（罗德里格斯旋转） ----------------
+    float cos_theta_eq = cosf(theta_eq);
+    float sin_theta_eq = sinf(theta_eq);
+    float r_cross_t0[3];
+    vectorCross(RotationAxis, t0, r_cross_t0);
+    float r_dot_t0 = vectorDot(RotationAxis, t0);
+
+    // t_eq = cosθ*t0 + sinθ*(r×t0) + (1-cosθ)*(r·t0)*r
+    t_eq[0] = cos_theta_eq * t0[0] + sin_theta_eq * r_cross_t0[0] + (1 - cos_theta_eq) * r_dot_t0 * RotationAxis[0];
+    t_eq[1] = cos_theta_eq * t0[1] + sin_theta_eq * r_cross_t0[1] + (1 - cos_theta_eq) * r_dot_t0 * RotationAxis[1];
+    t_eq[2] = cos_theta_eq * t0[2] + sin_theta_eq * r_cross_t0[2] + (1 - cos_theta_eq) * r_dot_t0 * RotationAxis[2];
+
+    // ---------------- 3. 计算3×2控制分配矩阵J ----------------
+    // 3.1 列1：J1 = cross(LiftCenter, t_eq) - k_torque * prop_rot_dir * t_eq
+    float J1[3];
+    vectorCross(LiftCenter, t_eq, J1);
+    J1[0] -= SERVO_ROTOR_K_TORQUE * servoRotorMixer()->prop_rot_dir * t_eq[0];
+    J1[1] -= SERVO_ROTOR_K_TORQUE * servoRotorMixer()->prop_rot_dir * t_eq[1];
+    J1[2] -= SERVO_ROTOR_K_TORQUE * servoRotorMixer()->prop_rot_dir * t_eq[2];
+
+    // 3.2 列2：J2 = T_eq*cross(LiftCenter, r×t_eq) - k_torque*prop_rot_dir*T_eq*(r×t_eq)
+    float r_cross_t_eq[3];
+    vectorCross(RotationAxis, t_eq, r_cross_t_eq);
+    float J2[3];
+    vectorCross(LiftCenter, r_cross_t_eq, J2);
+    for (int i = 0; i < 3; i++) {
+        J2[i] = T_eq * J2[i] - SERVO_ROTOR_K_TORQUE * servoRotorMixer()->prop_rot_dir * T_eq * r_cross_t_eq[i];
+    }
+
+    // 3.3 组装J矩阵（J[行][列]）
+    J[0][0] = J1[0]; J[0][1] = J2[0];
+    J[1][0] = J1[1]; J[1][1] = J2[1];
+    J[2][0] = J1[2]; J[2][1] = J2[2];
+
+    // ---------------- 4. 计算J的伪逆J_pinv（Tikhonov正则化） ----------------
+    // 步骤1：计算J^T (2×3)
+    Jt[0][0] = J[0][0]; Jt[0][1] = J[1][0]; Jt[0][2] = J[2][0];
+    Jt[1][0] = J[0][1]; Jt[1][1] = J[1][1]; Jt[1][2] = J[2][1];
+
+    // 步骤2：计算J^T * J (2×2)
+    JtJ[0][0] = Jt[0][0]*J[0][0] + Jt[0][1]*J[1][0] + Jt[0][2]*J[2][0];
+    JtJ[0][1] = Jt[0][0]*J[0][1] + Jt[0][1]*J[1][1] + Jt[0][2]*J[2][1];
+    JtJ[1][0] = Jt[1][0]*J[0][0] + Jt[1][1]*J[1][0] + Jt[1][2]*J[2][0];
+    JtJ[1][1] = Jt[1][0]*J[0][1] + Jt[1][1]*J[1][1] + Jt[1][2]*J[2][1];
+
+    // 步骤3：添加正则项 λ*I2
+    JtJ[0][0] += MIXER_LAMBDA;
+    JtJ[1][1] += MIXER_LAMBDA;
+
+    // 步骤4：求2×2矩阵的逆（invJtJ = 1/(ad-bc) * [d, -b; -c, a]）
+    float det = JtJ[0][0]*JtJ[1][1] - JtJ[0][1]*JtJ[1][0];
+    if (fabsf(det) < 1e-9f) { // 避免除零
+        det = 1e-9f;
+    }
+    float invDet = 1.0f / det;
+    invJtJ[0][0] = invDet * JtJ[1][1];
+    invJtJ[0][1] = invDet * (-JtJ[0][1]);
+    invJtJ[1][0] = invDet * (-JtJ[1][0]);
+    invJtJ[1][1] = invDet * JtJ[0][0];
+
+    // 步骤5：计算J_pinv = inv(JtJ) * Jt (2×3)
+    for (int i = 0; i < 2; i++) { // 行
+        for (int j = 0; j < 3; j++) { // 列
+            temp[i][j] = invJtJ[i][0] * Jt[0][j] + invJtJ[i][1] * Jt[1][j];
+        }
+    }
+
+    // 步骤6：将结果存入全局Mixer的J_pinv
+    memcpy(J_pinv, temp, sizeof(float)*2*3);
+}
+
+// 实时计算函数：从PIDsum算tau_d（乘以比例系数）
+void servoRotorMixerCalc(const int16_t pid_sum[3], float *T_des, float *theta_des) {
+    // ServoRotorMixer_t *mixer = servoRotorMixer();
+    float tau_d[3] = {0.0f}; // 期望力矩
+    float delta_u[2] = {0.0f};
+
+    // 核心修改：从PIDsum计算tau_d
+    tau_d[0] = (float)pid_sum[0] * (float)servoRotorMixer()->tau_scaler[0];
+    tau_d[1] = (float)pid_sum[1] * (float)servoRotorMixer()->tau_scaler[1];
+    tau_d[2] = (float)pid_sum[2] * (float)servoRotorMixer()->tau_scaler[2];
+
+    // 原有delta_u计算逻辑（J_pinv * tau_d）
+    delta_u[0] = J_pinv[0][0] * tau_d[0] + J_pinv[0][1] * tau_d[1] + J_pinv[0][2] * tau_d[2];
+    delta_u[1] = J_pinv[1][0] * tau_d[0] + J_pinv[1][1] * tau_d[1] + J_pinv[1][2] * tau_d[2];
+
+    // 原有推力、转角约束逻辑不变...
+    *T_des = servoRotorMixer()->T_eq/1000.0f + delta_u[0];
+    *T_des = (*T_des < 0.0f) ? 0.0f : *T_des;
+
+    *theta_des = servoRotorMixer()->theta_eq/1000.0f + delta_u[1];
+    *theta_des = (*theta_des > SERVO_THETA_LIMIT_RAD) ? SERVO_THETA_LIMIT_RAD : *theta_des;
+    *theta_des = (*theta_des < -SERVO_THETA_LIMIT_RAD) ? -SERVO_THETA_LIMIT_RAD : *theta_des;
+}
+#endif // end of modular-copter
+
 #define CRASH_RECOVERY_DETECTION_DELAY_US 1000000  // 1 second delay before crash recovery detection is active after entering a self-level mode
 
 #define LAUNCH_CONTROL_YAW_ITERM_LIMIT 50 // yaw iterm windup limit when launch mode is "FULL" (all axes)
@@ -1354,7 +1529,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // Set the pitch forward
         if(axis == FD_PITCH){
             pidData[axis].F = (-PitchTarget - servo2RotorDiskMap_B) / servo2RotorDiskMap_K * servoPWMRange / servoAngleRange;
-            position_msp.msg1 = pidData[axis].F * 100.0f;
+            // position_msp.msg1 = pidData[axis].F * 100.0f;
         }
 #endif        
 #ifdef USE_YAW_SPIN_RECOVERY
@@ -1426,7 +1601,13 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     // Estimate disk angular rate using diff + lowpass
     estimateDiskAngularRate(servoDesiredAngle, pidRuntime.dT);
 #endif
-    
+
+#ifdef MODULAR_PSEUDO_INVERSE
+    position_msp.msg1 = J_pinv[0][2];
+    // float tau_d[3] = {0.1f, 0.2f, 0.05f}; // 期望力矩[τx, τy, τz]
+    // float T_des, theta_des;
+    //servoRotorMixerCalc(tau_d, &T_des, &theta_des);
+#endif
 
     // 零油门pidData全置零？ 240730 jsl
     // Disable PID control if at zero throttle or if gyro overflow detected

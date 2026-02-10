@@ -89,6 +89,52 @@ extern float bodyPitchTarget;
 #endif
 #endif
 
+// JJJJJJJack MACRO for modular-copter
+#define MODULAR_PSEUDO_INVERSE
+
+#ifdef MODULAR_PSEUDO_INVERSE
+#define SERVO_ROTOR_MIXER_VER 1    // 参数版本号
+/************************ 多旋翼控制分配Mixer相关定义 ************************/
+// 舵机最大倾转角（对应Matlab的theta_limit，可自定义）
+#define SERVO_THETA_LIMIT_RAD (M_PI / 4.0f)
+// 伪逆正则化系数（对应Matlab的lambda）
+#define MIXER_LAMBDA (1e-6f)
+// 反扭系数
+#define SERVO_ROTOR_K_TORQUE 0.0219f
+
+// 存储Mixer所有参数（含PG存储+计算缓存）
+typedef struct {
+    // 所有坐标定义为NED
+    // ---------------- 硬件/固定参数（需存储） ----------------
+    int16_t LiftCenter[3];       // 转动中心相对重心 单位 mm [xo,yo,zo]
+    int16_t RotationAxis[3];     // 推力转轴方向 1000 -> 1 [xr,yr,zr] 
+    int16_t t0[3];               // θ=0时推力初始方向 1000 -> 1 [xt,yt,zt]
+    int16_t T_eq;                // 平衡点推力（标量）mN
+    int16_t theta_eq;            // 平衡点倾转角（弧度）mRAD
+    int8_t prop_rot_dir;        // 螺旋桨旋转方向，标量，CCW=1
+    uint16_t tau_scaler[3];     // 三轴力矩比例系数 [X,Y,Z]（int16，标定用）
+} ServoRotorMixer_t;
+
+PG_DECLARE(ServoRotorMixer_t, servoRotorMixer);
+
+// 初始化函数：预计算J矩阵和J_pinv（仅启动时执行一次）
+void servoRotorMixerInit(void);
+
+// 调整函数声明：传入PIDsum，内部计算tau_d
+void servoRotorMixerCalc(const int16_t pid_sum[3], float *T_des, float *theta_des);
+
+// 参数更新后重新计算J_pinv（MSP调用）
+void servoRotorMixerUpdateParams(void);          
+
+// 辅助向量运算函数声明（内部使用）
+void vectorCross(const float a[3], const float b[3], float res[3]);
+float vectorDot(const float a[3], const float b[3]);
+float NormOfVector(const float a[3]);
+void NormalizeVector(float v[3]);
+
+
+#endif
+
 // For twin bicopters docking
 //#define BI_DOCK
 
