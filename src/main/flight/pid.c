@@ -1603,7 +1603,9 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif
 
 #ifdef MODULAR_PSEUDO_INVERSE
-    position_msp.msg1 = J_pinv[0][2];
+    position_msp.msg1 = servoRotorMixer()->LiftCenter[0];
+    position_msp.msg2 = servoRotorMixer()->LiftCenter[1];
+    position_msp.msg3 = servoRotorMixer()->LiftCenter[2];
     // float tau_d[3] = {0.1f, 0.2f, 0.05f}; // 期望力矩[τx, τy, τz]
     // float T_des, theta_des;
     //servoRotorMixerCalc(tau_d, &T_des, &theta_des);
