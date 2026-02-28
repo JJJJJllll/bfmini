@@ -156,6 +156,21 @@ float diskDiffRate = 0.0, diskAngularRate = 0.0;
 
 // JJJJJJJack Modular copter
 #ifdef MODULAR_PSEUDO_INVERSE
+float actuatorOutput[4];
+// For testing pesudo inverse on quadcopter
+#ifdef MODULAR_TEST_QUAD
+// 核心：4×3伪逆矩阵J_pinv（直接写死，无需计算）
+// 公式：J_pinv = J^T × (J×J^T + λI)^-1 （λ=1e-6）
+// 维度：4行（电机1-4）×3列（ROLL/PITCH/YAW），输入τ_d(3维)→输出电机增量(4维)
+// BF电机顺序 1-右后 2-右前 3-左后 4-左前
+const float quad_J_pinv[4][3] = {
+    // ROLL        PITCH        YAW
+    { -2.9463f,   2.9463f,    10.000f },  // 电机1：右后（顺时针）
+    { -2.9463f,   -2.9463f,   -10.000f },  // 电机2：右前（逆时针）
+    { 2.9463f,    2.9463f,    -10.000f },  // 电机3：左后（逆时针）
+    { 2.9463f,    -2.9463f,   10.000f }   // 电机4：左前（顺时针）
+};
+#endif
 // ---------------- 计算缓存（无需存储，仅运行时） ----------------
 float J_pinv[2][3];        // 预计算的伪逆矩阵（init阶段生成）
 // PG注册（实现Flash存储）
@@ -305,28 +320,67 @@ void servoRotorMixerInit(void) {
 }
 
 // 实时计算函数：从PIDsum算tau_d（乘以比例系数）
-void servoRotorMixerCalc(const int16_t pid_sum[3], float *T_des, float *theta_des) {
+void servoRotorMixerCalc(const float pid_sum[3], float *T_des, float *theta_des) {
     // ServoRotorMixer_t *mixer = servoRotorMixer();
     float tau_d[3] = {0.0f}; // 期望力矩
     float delta_u[2] = {0.0f};
 
     // 核心修改：从PIDsum计算tau_d
-    tau_d[0] = (float)pid_sum[0] * (float)servoRotorMixer()->tau_scaler[0];
-    tau_d[1] = (float)pid_sum[1] * (float)servoRotorMixer()->tau_scaler[1];
-    tau_d[2] = (float)pid_sum[2] * (float)servoRotorMixer()->tau_scaler[2];
+    tau_d[0] = (float)pid_sum[0] / (float)servoRotorMixer()->tau_scaler[0]*5.0f;
+    tau_d[1] = (float)pid_sum[1] / (float)servoRotorMixer()->tau_scaler[1]*5.0f;
+    tau_d[2] = (float)pid_sum[2] / (float)servoRotorMixer()->tau_scaler[2]*5.0f;
 
     // 原有delta_u计算逻辑（J_pinv * tau_d）
     delta_u[0] = J_pinv[0][0] * tau_d[0] + J_pinv[0][1] * tau_d[1] + J_pinv[0][2] * tau_d[2];
     delta_u[1] = J_pinv[1][0] * tau_d[0] + J_pinv[1][1] * tau_d[1] + J_pinv[1][2] * tau_d[2];
 
     // 原有推力、转角约束逻辑不变...
-    *T_des = servoRotorMixer()->T_eq/1000.0f + delta_u[0];
-    *T_des = (*T_des < 0.0f) ? 0.0f : *T_des;
+    // 缩放系数通过 https://store.tmotor.com/product/mn5006-kv450-motor-antigravity-type.html 数据得到
+    *T_des = delta_u[0] * 0.03f;  // 推力→电机值的缩放系数 
+
 
     *theta_des = servoRotorMixer()->theta_eq/1000.0f + delta_u[1];
     *theta_des = (*theta_des > SERVO_THETA_LIMIT_RAD) ? SERVO_THETA_LIMIT_RAD : *theta_des;
     *theta_des = (*theta_des < -SERVO_THETA_LIMIT_RAD) ? -SERVO_THETA_LIMIT_RAD : *theta_des;
 }
+
+#ifdef MODULAR_TEST_QUAD
+// 输入：pid_sum[3]（BF的ROLL/PITCH/YAW PID输出）
+// 输出：motor_output[4]（0~1000，直接发给BF电机）
+void servoRotorMixerQuadCalc(const float pid_sum[3], float motor_output[4]) {
+    // 1. 将PID输出转换为3维期望力矩τ_d（单位：N·m）
+    float tau_d[3] = {
+        (float)pid_sum[0] * QUAD_TORQUE_SCALE,  // ROLL力矩
+        (float)pid_sum[1] * QUAD_TORQUE_SCALE,  // PITCH力矩
+        (float)pid_sum[2] * QUAD_TORQUE_SCALE   // YAW力矩
+    };
+    position_msp.msg3 = pid_sum[0]*100;
+    position_msp.msg4 = pid_sum[1]*100;
+    position_msp.msg5 = pid_sum[2]*100;
+
+    // 2. 伪逆计算：电机推力增量 = J_pinv × τ_d （4×3 × 3×1 = 4×1）
+    float motor_thrust_delta[4] = {0};
+    for (int i = 0; i < 4; i++) {  // 遍历4个电机
+        for (int j = 0; j < 3; j++) {  // 遍历3维力矩
+            motor_thrust_delta[i] += quad_J_pinv[i][j] * tau_d[j];
+        }
+    }
+
+    // 3. 计算最终电机推力（平衡点基础推力 + 增量）
+    float motor_thrust[4];
+    for (int i = 0; i < 4; i++) {
+        motor_thrust[i] = motor_thrust_delta[i];
+        motor_thrust[i] = constrainf(motor_thrust[i], -QUAD_MAX_THRUST, QUAD_MAX_THRUST);  // 限幅
+    }
+
+    // 4. 转换为BF电机输出（0~1000）
+    float scale = 0.05f;  // 推力→电机值的缩放系数
+    for (int i = 0; i < 4; i++) {
+        motor_output[i] = constrainf(motor_thrust[i] * scale, -1, 1);
+    }
+}
+#endif // end of MODULAR_TEST_QUAD
+
 #endif // end of modular-copter
 
 #define CRASH_RECOVERY_DETECTION_DELAY_US 1000000  // 1 second delay before crash recovery detection is active after entering a self-level mode
@@ -631,7 +685,6 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #ifdef ROTORDISK_FEEDBACK
     // Mapping servo angle to motor pitch angle
     rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
-    position_msp.msg5 = rotorDiskAngleFeedback * 100.0f;
     // Enable rotor disk angle feedback, only in pitch axis for bicopter
     if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
         currentAngle += rotorDiskAngleFeedback;
@@ -1603,12 +1656,15 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
 #endif
 
 #ifdef MODULAR_PSEUDO_INVERSE
-    position_msp.msg1 = servoRotorMixer()->LiftCenter[0];
-    position_msp.msg2 = servoRotorMixer()->LiftCenter[1];
-    position_msp.msg3 = servoRotorMixer()->LiftCenter[2];
-    // float tau_d[3] = {0.1f, 0.2f, 0.05f}; // 期望力矩[τx, τy, τz]
-    // float T_des, theta_des;
-    //servoRotorMixerCalc(tau_d, &T_des, &theta_des);
+    float pidSUM[3] = {pidData[FD_ROLL].Sum, pidData[FD_PITCH].Sum, pidData[FD_YAW].Sum};
+    #ifdef MODULAR_TEST_QUAD
+    servoRotorMixerQuadCalc(pidSUM, actuatorOutput);
+    position_msp.msg1 = actuatorOutput[0]*100;
+    #endif
+    float T_des, theta_des;
+    servoRotorMixerCalc(pidSUM, &T_des, &theta_des);
+    actuatorOutput[0] = T_des;
+    actuatorOutput[1] = theta_des;
 #endif
 
     // 零油门pidData全置零？ 240730 jsl
