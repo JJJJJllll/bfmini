@@ -618,6 +618,14 @@ void servoMixer(void)
             currentOutput[i] = 0;
         }
     }
+#ifdef MODULAR_PSEUDO_INVERSE
+    uint8_t Modular_target = currentServoMixer[0].targetChannel;
+    uint8_t Modular_from = currentServoMixer[0].inputSource;
+    uint16_t Modular_servo_width = servoParams(Modular_target)->max - servoParams(Modular_target)->min;
+    int16_t Modular_min = currentServoMixer[0].min * Modular_servo_width / 100 - Modular_servo_width / 2;
+    int16_t Modular_max = currentServoMixer[0].max * Modular_servo_width / 100 - Modular_servo_width / 2;
+    servo[Modular_target] += servoDirection(Modular_target, Modular_from) * constrain(((int32_t)actuatorOutput[1] * currentServoMixer[0].rate) / 100, Modular_min, Modular_max);
+#endif
     /*
     logdebug 1. 记录未加中值、未滤波的原始指令 (700 800) 240802 jsl
     */
