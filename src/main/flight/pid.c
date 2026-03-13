@@ -342,8 +342,8 @@ void servoRotorMixerCalc(const float pid_sum[3], float *T_des, float *theta_des)
     *theta_des = servoRotorMixer()->theta_eq/1000.0f + delta_u[1];
     *theta_des = (*theta_des > SERVO_THETA_LIMIT_RAD) ? SERVO_THETA_LIMIT_RAD : *theta_des;
     *theta_des = (*theta_des < -SERVO_THETA_LIMIT_RAD) ? -SERVO_THETA_LIMIT_RAD : *theta_des;
-    // 数值 500 对应 90度
-    *theta_des = *theta_des / (3.1415926f/2) * 500.0f * 0.7f;
+    // 数值 500 对应 60度
+    *theta_des = *theta_des / (M_PI / 3.0f) * 500.0f;
 }
 
 #ifdef MODULAR_TEST_QUAD

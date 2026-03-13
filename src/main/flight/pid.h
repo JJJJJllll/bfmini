@@ -107,7 +107,7 @@ extern float bodyPitchTarget;
 #define SERVO_ROTOR_MIXER_VER 1    // 参数版本号
 /************************ 多旋翼控制分配Mixer相关定义 ************************/
 // 舵机最大倾转角（对应Matlab的theta_limit，可自定义）
-#define SERVO_THETA_LIMIT_RAD (M_PI / 4.0f)
+#define SERVO_THETA_LIMIT_RAD (M_PI / 3.0f)
 // 伪逆正则化系数（对应Matlab的lambda）
 #define MIXER_LAMBDA (1e-6f)
 // 反扭系数
