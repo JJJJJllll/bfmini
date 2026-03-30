@@ -625,7 +625,7 @@ void servoMixer(void)
     uint16_t Modular_servo_width = servoParams(Modular_target)->max - servoParams(Modular_target)->min;
     int16_t Modular_min = currentServoMixer[0].min * Modular_servo_width / 100 - Modular_servo_width / 2;
     int16_t Modular_max = currentServoMixer[0].max * Modular_servo_width / 100 - Modular_servo_width / 2;
-    servo[Modular_target] = servoDirection(Modular_target, Modular_from) * constrain(((int32_t)actuatorOutput[1] * currentServoMixer[0].rate) / 100, Modular_min, Modular_max);
+    servo[Modular_target] = servoDirection(Modular_target, Modular_from) * constrain(((int32_t)actuatorOutput[1] * currentServoMixer[0].rate) / 100 - servoPitchFF / 60.0f * 500.0f * 0.7f, Modular_min, Modular_max);
     position_msp.msg2 = servo[Modular_target]*100;
 #endif
     /*

@@ -157,6 +157,7 @@ float diskDiffRate = 0.0, diskAngularRate = 0.0;
 // JJJJJJJack Modular copter
 #ifdef MODULAR_PSEUDO_INVERSE
 float actuatorOutput[4];
+float servoPitchFF;
 // For testing pesudo inverse on quadcopter
 #ifdef MODULAR_TEST_QUAD
 // 核心：4×3伪逆矩阵J_pinv（直接写死，无需计算）
@@ -181,13 +182,13 @@ PG_REGISTER_WITH_RESET_TEMPLATE(ServoRotorMixer_t, servoRotorMixer,
 PG_RESET_TEMPLATE(ServoRotorMixer_t, servoRotorMixer,
     // 所有坐标定义为NED
     // 硬件参数默认值（适配常规多旋翼）
-    .LiftCenter = {0, 0, 100},        // 转动中心在重心上方0.1m
-    .RotationAxis = {1000, 0, 0},      // X轴为旋转轴
+    .LiftCenter = {0, 320, -40},        // 转动中心在重心上方0.1m
+    .RotationAxis = {0, -1000, 0},      // X轴为旋转轴
     .t0 = {0, 0, -1000},                // 初始推力沿负Z轴向上
     .T_eq = 7000,                            // 平衡点推力7N
     .theta_eq = 0,                        // 平衡点倾角0弧度
     .prop_rot_dir = 1,                    // CCW=1
-    .tau_scaler = {100, 100, 100},           // 比例系数默认100（1倍）
+    .tau_scaler = {60, 40, 150},           // 比例系数默认100（1倍）
 );
 
 // // 全局Mixer实例 参考pidConfig，不需要定义该变量，pgDeclair宏会生成并定义它
@@ -673,6 +674,12 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
     angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
 #endif
     float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+
+#ifdef MODULAR_PSEUDO_INVERSE
+    if(axis == FD_PITCH){
+        servoPitchFF = currentAngle - angleTarget;
+    }
+#endif
 
 #ifdef ROTORDISK_FEEDBACK
     // Save the pitch target direct feedforward
@@ -1667,6 +1674,11 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
     servoRotorMixerCalc(pidSUM, &T_des, &theta_des);
     actuatorOutput[0] = T_des;
     actuatorOutput[1] = theta_des;
+    // 油门比小于10时舵机仅保留中位
+    if(calculateThrottlePercentAbs() < 10.0f){
+        actuatorOutput[1] = servoRotorMixer()->theta_eq/1000.0f / (M_PI/3.0f) * 500.0f;
+    }
+    
 #endif
 
     // 零油门pidData全置零？ 240730 jsl

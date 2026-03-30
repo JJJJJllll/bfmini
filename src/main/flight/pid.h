@@ -95,12 +95,14 @@ extern float bodyPitchTarget;
 // JJJJJJJack MACRO for testing modular pseudo inverse on quadcopter
 #ifdef MODULAR_PSEUDO_INVERSE
 //#define MODULAR_TEST_QUAD
+#ifdef MODULAR_TEST_QUAD
 /************************* 配套常量（匹配450g机型） *************************/
 #define QUAD_MAX_THRUST    15.0f     // 最大单电机推力：15N
 #define QUAD_ARM_LENGTH    0.12f       // 机臂长度0.12m
 #define QUAD_MOTOR_BASE    1.1036f     // 平衡点单电机推力：4.4145N/4=1.1036N
 #define QUAD_TORQUE_SCALE  0.0025452f      // PID输出转力矩的缩放系数（可微调）
 #define QUAD_LAMBDA        1e-6f       // 正则化系数（与伪逆计算一致）
+#endif
 #endif
 
 #ifdef MODULAR_PSEUDO_INVERSE
@@ -115,6 +117,8 @@ extern float bodyPitchTarget;
 
 // 控制量输出
 extern float actuatorOutput[4];
+// 期望角度前馈给舵机
+extern float servoPitchFF;
 
 // 存储Mixer所有参数（含PG存储+计算缓存）
 typedef struct {
