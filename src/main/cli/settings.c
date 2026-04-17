@@ -1092,6 +1092,20 @@ const clivalue_t valueTable[] = {
     { "runaway_takeoff_deactivate_throttle_percent",  VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 100 }, PG_PID_CONFIG, offsetof(pidConfig_t, runaway_takeoff_deactivate_throttle) }, // minimum throttle percentage during deactivation phase
 #endif
 
+#ifdef MODULAR_PSEUDO_INVERSE
+    { "servo_rotor_lift_center",     VAR_INT16  | MASTER_VALUE | MODE_ARRAY, .config.array.length = 3, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, LiftCenter) },
+    { "servo_rotor_rotation_axis",   VAR_INT16  | MASTER_VALUE | MODE_ARRAY, .config.array.length = 3, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, RotationAxis) },
+    { "servo_rotor_t0",              VAR_INT16  | MASTER_VALUE | MODE_ARRAY, .config.array.length = 3, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, t0) },
+    // 单个数值（T_eq）：指定范围（0~10000 mN）
+    { "servo_rotor_T_eq",            VAR_INT16  | MASTER_VALUE, .config.minmax = { 0, 10000 }, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, T_eq) },
+    // 单个数值（theta_eq）：mRAD，范围-32767~32767（int16最大值）
+    { "servo_rotor_theta_eq",        VAR_INT16  | MASTER_VALUE, .config.minmax = { -32767, 32767 }, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, theta_eq) },
+    // 枚举类型（prop_rot_dir）：int8，值为-1或1，分别表示顺时针旋转、和逆时针旋转
+    { "servo_rotor_prop_rot_dir",    VAR_INT8   | MASTER_VALUE, .config.minmax = { -1, 1 }, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, prop_rot_dir) },
+    // 数组类型（tau_scaler[3]）：uint16，范围0~65535
+    { "servo_rotor_tau_scaler",      VAR_UINT16 | MASTER_VALUE | MODE_ARRAY, .config.array.length = 3, PG_SERVO_ROTOR_MIXER, offsetof(ServoRotorMixer_t, tau_scaler) },
+#endif
+
 // PG_PID_PROFILE
 #ifdef USE_PROFILE_NAMES
     { "profile_name",               VAR_UINT8  | PROFILE_VALUE | MODE_STRING, .config.string = { 1, MAX_PROFILE_NAME_LENGTH, STRING_FLAGS_NONE }, PG_PID_PROFILE, offsetof(pidProfile_t, profileName) },

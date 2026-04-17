@@ -83,6 +83,9 @@
 #define PG_VTX_IO_CONFIG 57
 #define PG_GPS_LAP_TIMER 58
 
+// JJJJJJJack
+#define PG_SERVO_ROTOR_MIXER 59
+
 // Driver configuration
 #define PG_DRIVER_PWM_RX_CONFIG 100 // does not exist in betaflight
 #define PG_DRIVER_FLASHCHIP_CONFIG 101 // does not exist in betaflight

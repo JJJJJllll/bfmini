@@ -393,7 +393,13 @@ static void applyMixToMotors(float motorMix[MAX_SUPPORTED_MOTORS], motorMixer_t 
     // Now add in the desired throttle, but keep in a range that doesn't clip adjusted
     // roll/pitch/yaw. This could move throttle down, but also up for those low throttle flips.
     for (int i = 0; i < mixerRuntime.motorCount; i++) {
+        #ifdef MODULAR_TEST_QUAD
+        float motorOutput = motorOutputMixSign * actuatorOutput[i] + throttle * activeMixer[i].throttle + motorMix[i]*0.0f;
+        #elif defined(MODULAR_PSEUDO_INVERSE)
+        float motorOutput = motorOutputMixSign * actuatorOutput[i] + throttle * activeMixer[i].throttle + motorMix[i]*0.0f;
+        #else
         float motorOutput = motorOutputMixSign * motorMix[i] + throttle * activeMixer[i].throttle;
+        #endif
 #ifdef USE_THRUST_LINEARIZATION
         motorOutput = pidApplyThrustLinearization(motorOutput);
 #endif
@@ -773,6 +779,7 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
         // motor_stop handling
         applyMotorStop();
     } else {
+        position_msp.msg3 = motorMix[0]*100;
         // Apply the mix to motor endpoints
         applyMixToMotors(motorMix, activeMixer);
     }

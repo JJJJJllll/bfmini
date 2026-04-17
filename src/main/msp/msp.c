@@ -2557,6 +2557,51 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
 
     case MSP_SET_WP:
         {
+            #ifdef MODULAR_PSEUDO_INVERSE
+            // ---------------- 按顺序解析混合器参数（需与上位机对应） ----------------
+            // 解析规则：
+            /*
+                int16_t LiftCenter[3];       // 转动中心相对重心 单位 mm [xo,yo,zo]
+                int16_t RotationAxis[3];     // 推力转轴方向 1000 -> 1 [xr,yr,zr] 
+                int16_t t0[3];               // θ=0时推力初始方向 1000 -> 1 [xt,yt,zt]
+                int16_t T_eq;                // 平衡点推力（标量）mN
+                int16_t theta_eq;            // 平衡点倾转角（弧度）mRAD
+                int8_t prop_rot_dir;        // 螺旋桨旋转方向，标量，CCW=1
+                uint16_t tau_scaler[3];     // 三轴力矩比例系数 [X,Y,Z]（int16，标定用）
+            */
+            // 1. LiftCenter[3] (int16 ×3)
+            servoRotorMixerMutable()->LiftCenter[0] = sbufReadU16(src);
+            servoRotorMixerMutable()->LiftCenter[1] = sbufReadU16(src);
+            servoRotorMixerMutable()->LiftCenter[2] = sbufReadU16(src);
+
+            // 2. RotationAxis[3] (int16 ×3)
+            servoRotorMixerMutable()->RotationAxis[0] = sbufReadU16(src);
+            servoRotorMixerMutable()->RotationAxis[1] = sbufReadU16(src);
+            servoRotorMixerMutable()->RotationAxis[2] = sbufReadU16(src);
+            
+            // 3. t0[3] (int16 ×3)
+            servoRotorMixerMutable()->t0[0] = sbufReadU16(src);
+            servoRotorMixerMutable()->t0[1] = sbufReadU16(src);
+            servoRotorMixerMutable()->t0[2] = sbufReadU16(src);
+
+            // 4. T_eq (int16)
+            servoRotorMixerMutable()->T_eq = sbufReadU16(src);
+
+            // 5. theta_eq (int16)
+            servoRotorMixerMutable()->theta_eq = sbufReadU16(src);
+
+            // 6. prop_rot_dir (int8)
+            servoRotorMixerMutable()->prop_rot_dir = sbufReadU8(src);
+
+            // 7. tau_scaler[3] (uint16 ×3)
+            servoRotorMixerMutable()->tau_scaler[0] = sbufReadU16(src);
+            servoRotorMixerMutable()->tau_scaler[1] = sbufReadU16(src);
+            servoRotorMixerMutable()->tau_scaler[2] = sbufReadU16(src);
+
+            // ---------------- 保存参数+重新计算J_pinv ----------------
+            servoRotorMixerInit();           // 重新计算伪逆矩阵
+            saveConfigAndNotify();
+            #else
             setWP_msp.msg1 = sbufReadU8(src);
             setWP_msp.msg2 = sbufReadU8(src);
             setWP_msp.msg3 = sbufReadU8(src);
@@ -2564,6 +2609,7 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
             setWP_msp.msg5 = sbufReadU8(src);
             setWP_msp.msg6 = sbufReadU8(src);
             setWP_msp.msg7 = sbufReadU8(src);
+            #endif
         }
         sbufWriteU8(dst, true);
         break;
@@ -3713,6 +3759,7 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         boardAlignmentMutable()->rollDegrees = sbufReadU16(src);
         boardAlignmentMutable()->pitchDegrees = sbufReadU16(src);
         boardAlignmentMutable()->yawDegrees = sbufReadU16(src);
+        saveConfigAndNotify();
         break;
 
     case MSP_SET_MIXER_CONFIG:

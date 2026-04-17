@@ -74,7 +74,7 @@
 // #define QUATERNION_CONTROL
 
 // JJJJJJJack MACRO for rotor disk feedback
-#define ROTORDISK_FEEDBACK
+//#define ROTORDISK_FEEDBACK
 //#define CONFIGURATION_TAILSITTER
 #ifdef CONFIGURATION_TAILSITTER
 #define FOLDABLE_WING
@@ -87,6 +87,76 @@
 extern float PitchTarget_rad;
 extern float bodyPitchTarget;
 #endif
+#endif
+
+// JJJJJJJack MACRO for modular-copter
+#define MODULAR_PSEUDO_INVERSE
+
+// JJJJJJJack MACRO for testing modular pseudo inverse on quadcopter
+#ifdef MODULAR_PSEUDO_INVERSE
+//#define MODULAR_TEST_QUAD
+#ifdef MODULAR_TEST_QUAD
+/************************* 配套常量（匹配450g机型） *************************/
+#define QUAD_MAX_THRUST    15.0f     // 最大单电机推力：15N
+#define QUAD_ARM_LENGTH    0.12f       // 机臂长度0.12m
+#define QUAD_MOTOR_BASE    1.1036f     // 平衡点单电机推力：4.4145N/4=1.1036N
+#define QUAD_TORQUE_SCALE  0.0025452f      // PID输出转力矩的缩放系数（可微调）
+#define QUAD_LAMBDA        1e-6f       // 正则化系数（与伪逆计算一致）
+#endif
+#endif
+
+#ifdef MODULAR_PSEUDO_INVERSE
+#define SERVO_ROTOR_MIXER_VER 1    // 参数版本号
+/************************ 多旋翼控制分配Mixer相关定义 ************************/
+// 舵机最大倾转角（对应Matlab的theta_limit，可自定义）
+#define SERVO_THETA_LIMIT_RAD (M_PI / 3.0f)
+// 伪逆正则化系数（对应Matlab的lambda）
+#define MIXER_LAMBDA (1e-6f)
+// 反扭系数
+#define SERVO_ROTOR_K_TORQUE 0.0219f
+
+// 控制量输出
+extern float actuatorOutput[4];
+// 期望角度前馈给舵机
+extern float servoPitchFF;
+
+// 存储Mixer所有参数（含PG存储+计算缓存）
+typedef struct {
+    // 所有坐标定义为NED
+    // ---------------- 硬件/固定参数（需存储） ----------------
+    int16_t LiftCenter[3];       // 转动中心相对重心 单位 mm [xo,yo,zo]
+    int16_t RotationAxis[3];     // 推力转轴方向 1000 -> 1 [xr,yr,zr] 
+    int16_t t0[3];               // θ=0时推力初始方向 1000 -> 1 [xt,yt,zt]
+    int16_t T_eq;                // 平衡点推力（标量）mN
+    int16_t theta_eq;            // 平衡点倾转角（弧度）mRAD
+    int8_t prop_rot_dir;        // 螺旋桨旋转方向，标量，CCW=1
+    uint16_t tau_scaler[3];     // 三轴力矩比例系数 [X,Y,Z] PID输出1后得到1/tau_scaler的力矩, tau_scaler=1/J
+} ServoRotorMixer_t;
+
+PG_DECLARE(ServoRotorMixer_t, servoRotorMixer);
+
+// 初始化函数：预计算J矩阵和J_pinv（仅启动时执行一次）
+void servoRotorMixerInit(void);
+
+// 调整函数声明：传入PIDsum，内部计算tau_d
+void servoRotorMixerCalc(const float pid_sum[3], float *T_des, float *theta_des);
+
+#ifdef MODULAR_TEST_QUAD
+// 输入：pid_sum[3]（BF的ROLL/PITCH/YAW PID输出）
+// 输出：motor_output[4]（0~1000，直接发给BF电机）
+void servoRotorMixerQuadCalc(const float pid_sum[3], float motor_output[4]);
+#endif
+
+// 参数更新后重新计算J_pinv（MSP调用）
+void servoRotorMixerUpdateParams(void);          
+
+// 辅助向量运算函数声明（内部使用）
+void vectorCross(const float a[3], const float b[3], float res[3]);
+float vectorDot(const float a[3], const float b[3]);
+float NormOfVector(const float a[3]);
+void NormalizeVector(float v[3]);
+
+
 #endif
 
 // For twin bicopters docking
