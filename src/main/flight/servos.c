@@ -55,6 +55,7 @@
 
 #include "rx/rx.h"
 #include "build/debug.h" // 为了记录servo 240802 jsl
+#include "drivers/time.h"
 /*
 设计三个宏，分别用来单独分析左/右舵机的细分数据、和拿左右舵机的粗分数据
 三者同时只能取一个，因为debug变量总数不够
@@ -159,6 +160,7 @@ static const servoMixer_t servoMixerBI[] = {
     { SERVO_BICOPTER_LEFT_ELEVON, INPUT_STABILIZED_PITCH,   100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_YAW,   -100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_SWINGBAT, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
 #endif
 #ifdef CONFIGURATION_QUADTILT
     { SERVO_BICOPTER_LEFT,          INPUT_STABILIZED_SERVO_PITCH,         100, 0, 0, 100, 0 },   //实际前右
@@ -615,6 +617,28 @@ void servoMixer(void)
             currentOutput[i] = 0;
         }
     }
+    #ifdef FOLDABLE_WING
+    // float_t a7Rate = ( rcData[AUX7] - 1000 + 1 ) / 1001.0f;
+    // float_t a8Rate = ( rcData[AUX8] - 1000 + 1 ) / 1001.0f;
+    // float_t a9Rate = ( rcData[AUX9] - 1000 + 1 ) / 1001.0f;
+    // //float_t a10Rate = ( rcData[AUX10] - 1000 + 1 ) / 1001.0f;
+
+    // float_t frequency = a7Rate * 2;
+    // float_t amplitude = a8Rate;
+    // float_t phase_lag = DEGREES_TO_RADIANS(a9Rate * 120.0f);
+    // float_t omega = 2 * M_PIf * frequency;
+    // //float_t UnderWaterMotorRate = a10Rate;
+
+    // //int16_t servoRangeUnderWaterMotor = servoParams(SERVO_BICOPTER_SWINGBAT)->max - servoParams(SERVO_BICOPTER_SWINGBAT)->min;
+    // int16_t servoRangeFoldWing = servoParams(SERVO_BICOPTER_FOLDWING)->max - servoParams(SERVO_BICOPTER_FOLDWING)->min;
+    // int16_t servoRangeElevon = servoParams(SERVO_BICOPTER_LEFT_ELEVON)->max - servoParams(SERVO_BICOPTER_LEFT_ELEVON)->min;
+    // uint32_t currentTime = micros();
+
+    // //servo[SERVO_BICOPTER_SWINGBAT] = UnderWaterMotorRate * servoRangeUnderWaterMotor / 2.0f - 500;
+    // servo[SERVO_BICOPTER_FOLDWING] = amplitude * (servoRangeFoldWing) / 2.0f * sinf(omega * currentTime * 1e-6);
+    // servo[SERVO_BICOPTER_LEFT_ELEVON] = amplitude * (servoRangeElevon) / 2.0f * sinf(omega * currentTime * 1e-6 + phase_lag);
+    // servo[SERVO_BICOPTER_RIGHT_ELEVON] = amplitude * (servoRangeElevon) / 2.0f * sinf(omega * currentTime * 1e-6 + phase_lag + M_PIf);
+#endif
 #ifdef MODULAR_PSEUDO_INVERSE
     uint8_t Modular_target = currentServoMixer[0].targetChannel;
     uint8_t Modular_from = currentServoMixer[0].inputSource;

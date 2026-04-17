@@ -714,6 +714,7 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
         PitchTarget = currentAngle - angleTarget;
         // Mapping servo angle to motor pitch angle
         rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
+        position_msp.msg5 = rotorDiskAngleFeedback * 100.0f;
     }
     // Enable rotor disk angle feedback, only in pitch axis for bicopter
     if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
