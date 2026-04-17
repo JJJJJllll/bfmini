@@ -133,6 +133,7 @@ float bodyPitch;
 float PitchTarget_rad;
 float bodyPitchTarget;
 #endif
+// Servo to rotor disk mapping parameters
 float servo2RotorDiskMap_K = 1;
 float servo2RotorDiskMap_B = 0.0;
 #ifdef CONFIGURATION_TAILSITTER
@@ -148,7 +149,12 @@ float servoAngleRange = 270.0f;
 float servoPWMRange = 2000.0f;
 float servoAngleRange = 180.0f;
 #endif
-
+// Bicopter through narrow gap control
+#ifdef NARROWGAP_AUXIN
+float AUXIN_ROLLRATE = 0.0f;
+float AUXIN_PITCHRATE = 0.0f;
+float AUXIN_YAWRATE = 0.0f;
+#endif
 // JJJJJJJack& Jsl 20240910 sim a lowpass filter
 float LP_A = 50, LP_last_out = 0, LP_last_in = 0;
 float servoLastDesiredAngle = 0.0;
@@ -1462,7 +1468,12 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         }
 #endif
 
-
+#ifdef NARROWGAP_AUXIN
+            if(axis == FD_PITCH){
+                // use AUXIN_PITCHRATE as pitch rate feedforward for narrow gap flight
+                currentPidSetpoint += AUXIN_PITCHRATE;
+            }
+#endif
         float errorRate = currentPidSetpoint - gyroRate; // r - y
 #if defined(USE_ACC)
         handleCrashRecovery(
