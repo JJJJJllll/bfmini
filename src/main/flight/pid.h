@@ -74,7 +74,7 @@
 // #define QUATERNION_CONTROL
 
 // JJJJJJJack MACRO for rotor disk feedback
-//#define ROTORDISK_FEEDBACK
+#define ROTORDISK_FEEDBACK
 //#define CONFIGURATION_TAILSITTER
 #ifdef CONFIGURATION_TAILSITTER
 #define FOLDABLE_WING
@@ -86,11 +86,12 @@
 #ifdef CONFIGURATION_QUADTILT
 extern float PitchTarget_rad;
 extern float bodyPitchTarget;
+extern float bodyPitch;
 #endif
 #endif
 
 // JJJJJJJack MACRO for modular-copter
-#define MODULAR_PSEUDO_INVERSE
+//#define MODULAR_PSEUDO_INVERSE
 
 // JJJJJJJack MACRO for testing modular pseudo inverse on quadcopter
 #ifdef MODULAR_PSEUDO_INVERSE

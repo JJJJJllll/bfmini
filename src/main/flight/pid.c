@@ -128,6 +128,7 @@ float servoRateIntegral;
 float rotorDiskAngleFeedback;
 #define motorInertia 6e-5f
 float PitchTarget;
+float bodyPitch;
 #ifdef CONFIGURATION_QUADTILT
 float PitchTarget_rad;
 float bodyPitchTarget;
@@ -673,35 +674,55 @@ STATIC_UNIT_TESTED FAST_CODE_NOINLINE float pidLevel(int axis, const pidProfile_
 #ifdef USE_GPS_RESCUE
     angleTarget += gpsRescueAngle[axis] / 100.0f; // Angle is in centidegrees, stepped on roll at 10Hz but not on pitch
 #endif
-    float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
+    //float currentAngle = (attitude.raw[axis] - angleTrim->raw[axis]) / 10.0f; // stepped at 500hz with some 4ms flat spots
 
 #ifdef MODULAR_PSEUDO_INVERSE
     if(axis == FD_PITCH){
-        servoPitchFF = currentAngle - angleTarget;
+        // 模块化双旋翼提供前馈用，考虑删除
+        servoPitchFF = 0;//currentAngle - angleTarget;
     }
 #endif
+
+    // 调整旋转顺序，ZXY，奇点为滚转90度 contributed by HuZ 
+    // 计算完俯仰角的方向与原板中的方向相反
+    float alpha,beta,gamma;
+    alpha = lrintf(((0.5f * M_PIf) - acos_approx(rMat[2][1])) * (1800.0f / M_PIf));
+    beta = lrintf((atan2_approx(rMat[2][0], rMat[2][2]) * (1800.0f / M_PIf)));
+    gamma = lrintf((atan2_approx(-rMat[0][1], rMat[1][1]) * (1800.0f / M_PIf)));
+    
+    float currentAngle;
+    if(axis == FD_ROLL){
+          currentAngle = (alpha - angleTrim->raw[FD_ROLL]) / 10.0f;
+    }
+    if(axis == FD_PITCH){
+        currentAngle = -(beta - angleTrim->raw[FD_PITCH]) / 10.0f;
+        bodyPitch = -DEGREES_TO_RADIANS(currentAngle); // 机身俯仰角ZXY
+    }
+    if(axis == FD_YAW){
+        currentAngle = (gamma - angleTrim->raw[FD_YAW]) / 10.0f;
+    }
 
 #ifdef ROTORDISK_FEEDBACK
     // Save the pitch target direct feedforward
     if(axis == FD_PITCH){
         PitchTarget = currentAngle - angleTarget;
-#ifdef CONFIGURATION_QUADTILT
-        PitchTarget_rad = DEGREES_TO_RADIANS(PitchTarget);
-#endif
+        // Mapping servo angle to motor pitch angle
+        rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
     }
-#endif
-
-#ifdef ROTORDISK_FEEDBACK
-    // Mapping servo angle to motor pitch angle
-    rotorDiskAngleFeedback = servoAngleFeedback * servo2RotorDiskMap_K + servo2RotorDiskMap_B;
     // Enable rotor disk angle feedback, only in pitch axis for bicopter
     if(mixerConfig()->mixerMode == MIXER_BICOPTER && axis == FD_PITCH)
         currentAngle += rotorDiskAngleFeedback;
 #endif
 
+    #ifdef CONFIGURATION_QUADTILT
+    PitchTarget = bodyPitchTarget+angleTarget*0.85f*cosf(DEGREES_TO_RADIANS(bodyPitchTarget));//手控+程控  240911 jsl
+    PitchTarget_rad = DEGREES_TO_RADIANS(PitchTarget);
+#endif
+
 #ifdef CONFIGURATION_QUADTILT
-    if(axis == FD_PITCH)
-        angleTarget = -bodyPitchTarget;
+    if(axis == FD_PITCH){
+        angleTarget = angleTarget*0.85f*sinf(DEGREES_TO_RADIANS(bodyPitchTarget)) -bodyPitchTarget;// 外环目标角度由手控+程控组成，程控部分根据机身俯仰角进行修正，修正量随机身俯仰角增大而增大
+    }
 #endif
     const float errorAngle = angleTarget - currentAngle;
     // 角度环=反馈+前馈  240730 jsl
@@ -1424,10 +1445,10 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
         // Rotate gyro feedback to rotor disk frame.
         // Solve the control allocation problem in feedback instead of controller
         // From a rotation matrix based on rotorDisk angle
-        const float rotorDiskRadians = DEGREES_TO_RADIANS(rotorDiskAngleFeedback);
+        // const float rotorDiskRadians = DEGREES_TO_RADIANS(rotorDiskAngleFeedback);
         switch(axis) {
             case FD_ROLL:{
-                gyroRate = cosf(rotorDiskRadians) * gyro.gyroADCf[FD_ROLL] - sinf(rotorDiskRadians) * gyro.gyroADCf[FD_YAW];
+                gyroRate = cosf(bodyPitch) * gyro.gyroADCf[FD_ROLL] - sinf(bodyPitch) * gyro.gyroADCf[FD_YAW];
                 break;
             }
             case FD_PITCH: {
@@ -1435,7 +1456,7 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 break;
             }
             case FD_YAW: {
-                gyroRate = sinf(rotorDiskRadians) * gyro.gyroADCf[FD_ROLL] + cosf(rotorDiskRadians) * gyro.gyroADCf[FD_YAW];
+                gyroRate = sinf(bodyPitch) * gyro.gyroADCf[FD_ROLL] + cosf(bodyPitch) * gyro.gyroADCf[FD_YAW];
                 break;
             }
         }
@@ -1488,6 +1509,16 @@ void FAST_CODE pidController(const pidProfile_t *pidProfile, timeUs_t currentTim
                 pidRuntime.itermAccelerator = 0.0f; // no antigravity on yaw iTerm
             }
         }
+
+        #ifdef CONFIGURATION_QUADTILT
+         // 在计算 I 项之前
+         if (axis == FD_PITCH) {
+             // 根据机身俯仰角衰减 Anti-Gravity
+         
+             pidRuntime.itermAccelerator=0.0f;
+         }
+         #endif
+         
         // 3.3 I控制（itermErrorRate in, pidData[axis].I out）
         const float iTermChange = (Ki + pidRuntime.itermAccelerator) * dynCi * pidRuntime.dT * itermErrorRate;
         pidData[axis].I = constrainf(previousIterm + iTermChange, -pidRuntime.itermLimit, pidRuntime.itermLimit);

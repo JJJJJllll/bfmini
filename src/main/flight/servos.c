@@ -146,22 +146,14 @@ static const servoMixer_t servoMixerBI[] = {
     /* input source共14个、双旋翼只用2个：stabilized yaw + pitch
        从servo的角度看过去，yaw是两个都cw转、pitch是一个cw一个ccw -> 对yaw都+1、对pitch+1-1 
        左舵 偏航输入 +100%响应 不限速 MIN0 MAX100 无box 240730 jsl */
-    /*
-    上拉
+    
+    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
+    #ifndef CONFIGURATION_QUADTILT
+    // 倾转四旋翼暂不通过倾转修正偏航
     { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,     100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  -100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,    100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
-    下推
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,     100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,    100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
-    */
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_YAW,     100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_PITCH,  -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_YAW,    100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_PITCH, 100, 0, 0, 100, 0 },
+    #endif
 #ifdef CONFIGURATION_TAILSITTER
     { SERVO_BICOPTER_LEFT_ELEVON, INPUT_STABILIZED_YAW,    -100, 0, 0, 100, 0 },
     { SERVO_BICOPTER_LEFT_ELEVON, INPUT_STABILIZED_PITCH,   100, 0, 0, 100, 0 },
@@ -169,14 +161,12 @@ static const servoMixer_t servoMixerBI[] = {
     { SERVO_BICOPTER_RIGHT_ELEVON, INPUT_STABILIZED_PITCH, -100, 0, 0, 100, 0 },
 #endif
 #ifdef CONFIGURATION_QUADTILT
-    { SERVO_BICOPTER_LEFT, INPUT_STABILIZED_ROLL,           -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT, INPUT_STABILIZED_ROLL,          -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT_REAR, INPUT_STABILIZED_YAW,       -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT_REAR, INPUT_STABILIZED_PITCH,     100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_LEFT_REAR, INPUT_STABILIZED_ROLL,      100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT_REAR, INPUT_STABILIZED_YAW,      -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT_REAR, INPUT_STABILIZED_PITCH,    -100, 0, 0, 100, 0 },
-    { SERVO_BICOPTER_RIGHT_REAR, INPUT_STABILIZED_ROLL,     100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_LEFT,          INPUT_STABILIZED_SERVO_PITCH,         100, 0, 0, 100, 0 },   //实际前右
+    { SERVO_BICOPTER_RIGHT,         INPUT_STABILIZED_SERVO_PITCH,        100, 0, 0, 100, 0 },   //实际后左
+    { SERVO_BICOPTER_LEFT_REAR,     INPUT_STABILIZED_SERVO_PITCH,   -100, 0, 0, 100, 0 },   //实际后右
+    { SERVO_BICOPTER_RIGHT_REAR,    INPUT_STABILIZED_SERVO_PITCH,   -100, 0, 0, 100, 0 },   //实际前左//260405for songchunling
+    { SERVO_BICOPTER_LEFT_REAR,     INPUT_STABILIZED_PITCH,     100, 0, 0, 100, 0 },
+    { SERVO_BICOPTER_RIGHT_REAR,    INPUT_STABILIZED_PITCH,    -100, 0, 0, 100, 0 },
 #endif
 };
 
@@ -502,9 +492,15 @@ void servoMixer(void)
     } else {
 #ifdef CONFIGURATION_QUADTILT
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
-        input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * sinf(PitchTarget_rad) * PID_SERVO_MIXER_SCALING;  
-        input[INPUT_STABILIZED_PITCH] = (pidData[FD_PITCH].Sum * sinf(PitchTarget_rad)) * PID_SERVO_MIXER_SCALING + pidData[FD_PITCH].F;
-        input[INPUT_STABILIZED_YAW] = pidData[FD_YAW].Sum * cosf(PitchTarget_rad) * PID_SERVO_MIXER_SCALING;
+        input[INPUT_STABILIZED_PITCH]=-pidData[FD_PITCH].F;//0123
+        //input[INPUT_STABILIZED_PITCH]=0.0f;//0123
+        input[INPUT_STABILIZED_SERVO_PITCH]=(pidData[FD_PITCH].Sum *(1-cosf(PitchTarget_rad))) * PID_SERVO_MIXER_SCALING * 4.0f;
+        // input[INPUT_STABILIZED_SERVO_PITCH]=(atan2f(sinf(PitchTarget_rad), (cosf(PitchTarget_rad)-pidData[FD_PITCH].Sum*7.5f/1300.0f*0.3f))-PitchTarget_rad)*7.411111f* 57.2957795f;//0123
+        //  input[INPUT_STABILIZED_SERVO_PITCH]=(atan2f(sinf(PitchTarget_rad), (cosf(PitchTarget_rad)-pidData[FD_PITCH].Sum*7.5f/1300.0f*0.3f))-PitchTarget_rad)*7.411111f* 57.2957795f;//for songchunling 240405  
+        //  input[INPUT_STABILIZED_SERVO_PITCH]=0.0f;
+            position_msp.msg1=pidData[FD_PITCH].F*100.0f;
+            position_msp.msg6=input[INPUT_STABILIZED_PITCH]*100.0f;
+            position_msp.msg5=input[INPUT_STABILIZED_SERVO_PITCH]*100.0f;
 #else
         // Assisted modes (gyro only or gyro+acc according to AUX configuration in Gui
         input[INPUT_STABILIZED_ROLL] = pidData[FD_ROLL].Sum * PID_SERVO_MIXER_SCALING;

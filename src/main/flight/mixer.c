@@ -700,9 +700,9 @@ FAST_CODE_NOINLINE void mixTable(timeUs_t currentTimeUs)
     for (int i = 0; i < mixerRuntime.motorCount; i++) {
 #ifdef CONFIGURATION_QUADTILT
         float mix =
-            scaledAxisPidRoll  * activeMixer[i].roll * cosf(PitchTarget_rad) +
-            scaledAxisPidPitch * activeMixer[i].pitch * cosf(PitchTarget_rad) +
-            scaledAxisPidYaw   * activeMixer[i].yaw;
+            scaledAxisPidRoll  * activeMixer[i].roll +
+             scaledAxisPidPitch * activeMixer[i].pitch *fabsf(cosf(PitchTarget_rad))+
+             scaledAxisPidYaw   * activeMixer[i].yaw;
 #else
         float mix =
             scaledAxisPidRoll  * activeMixer[i].roll +
